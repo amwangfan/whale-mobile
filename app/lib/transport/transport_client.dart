@@ -357,6 +357,12 @@ class TransportClient {
               .invokeMethod<String>('getNotificationReadPermissionStatus') ??
           'denied';
 
+  /// SEC-02：授权与系统实际绑定分开观测（permission/bound/buffered/overflow 等）。
+  Future<Map<String, dynamic>> getNotificationReadStatus() async =>
+      Map<String, dynamic>.from(await _methods
+              .invokeMethod<Map<dynamic, dynamic>>('getNotificationReadStatus') ??
+          <String, dynamic>{});
+
   /// 「去授权」：跳系统通知监听设置页（特殊访问权限无运行时弹窗，只能跳设置）。
   Future<void> openNotificationListenerSettings() =>
       _methods.invokeMethod<void>('openNotificationListenerSettings');

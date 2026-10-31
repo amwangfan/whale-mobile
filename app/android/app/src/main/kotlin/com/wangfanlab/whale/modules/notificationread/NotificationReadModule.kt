@@ -45,8 +45,14 @@ class NotificationReadModule(
 ) {
     init {
         // 静态钩子：service 回调线程不定，decider/deduper 内部线程安全。
+        // SEC-02：注册前先回放进程早期（钩子就绪前）缓冲的事件，保证不丢。
         WhaleNotificationListenerService.sNotificationHook = { raw ->
             handle(raw)
+        }
+        val replay = WhaleNotificationListenerService.pendingBuffer.drain()
+        if (replay.isNotEmpty()) {
+            Log.i(TAG, "回放缓冲通知事件 ${replay.size} 条")
+            for (raw in replay) handle(raw)
         }
     }
 
@@ -188,30 +194,45 @@ class WhaleNotificationListenerService : NotificationListenerService() {
     )
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
-        val hook = sNotificationHook ?: return
+        val hook = sNotificationHook
         try {
             val n = sbn.notification ?: return
             // 脱敏：仅 EXTRA_TITLE；正文（EXTRA_TEXT*）/tickerText 一律不读。
             val title = n.extras?.getCharSequence(Notification.EXTRA_TITLE)
                 ?.toString().orEmpty()
-            hook(
-                RawNotification(
-                    packageName = sbn.packageName.orEmpty(),
-                    postedTimeMs = sbn.postTime,
-                    category = n.category,
-                    title = title,
-                    ongoing = sbn.isOngoing,
-                    hasProgress = n.extras?.let {
-                        it.getInt(Notification.EXTRA_PROGRESS_MAX, 0) > 0
-                    } == true,
-                )
+            val raw = RawNotification(
+                packageName = sbn.packageName.orEmpty(),
+                postedTimeMs = sbn.postTime,
+                category = n.category,
+                title = title,
+                ongoing = sbn.isOngoing,
+                hasProgress = n.extras?.let {
+                    it.getInt(Notification.EXTRA_PROGRESS_MAX, 0) > 0
+                } == true,
             )
+            if (hook != null) {
+                hook(raw)
+            } else {
+                // SEC-02：运行时未就绪（进程冷启动竞态）→ 有界缓冲，不静默丢。
+                pendingBuffer.offer(raw)
+                Log.d(TAG, "钩子未就绪，通知事件入缓冲（${pendingBuffer.size}）")
+            }
         } catch (t: Throwable) {
             Log.w(TAG, "通知字段提取异常", t)
         }
     }
 
+    override fun onListenerConnected() {
+        // SEC-02：系统已实际绑定（与「授权已授予」区分观测）。
+        listenerBound = true
+        lastBoundAtMs = System.currentTimeMillis()
+        Log.i(TAG, "NotificationListener 已被系统绑定")
+    }
+
     override fun onListenerDisconnected() {
+        listenerBound = false
+        lastUnboundAtMs = System.currentTimeMillis()
+        Log.i(TAG, "NotificationListener 解绑，请求重绑")
         // 权限被撤销/服务被杀后系统会自动解绑；请求重连（API 24+，minSdk 26）。
         try {
             requestRebind(
@@ -227,5 +248,31 @@ class WhaleNotificationListenerService : NotificationListenerService() {
 
         @Volatile
         var sNotificationHook: ((RawNotification) -> Unit)? = null
+
+        /** SEC-02：钩子未就绪时的有界缓冲（溢出丢最旧并计数）。 */
+        val pendingBuffer = NotificationEventBuffer<RawNotification>()
+
+        /** 系统是否已实际绑定本服务（onListenerConnected/Disconnected 观测）。 */
+        @Volatile
+        var listenerBound: Boolean = false
+            private set
+
+        @Volatile
+        var lastBoundAtMs: Long = 0
+            private set
+
+        @Volatile
+        var lastUnboundAtMs: Long = 0
+            private set
+
+        /** 可观测绑定状态：granted（设置授权）与 bound（系统实际绑定）分开。 */
+        fun bindingStatus(context: Context): Map<String, Any?> = mapOf(
+            "permission" to NotificationReadModule.permissionStatus(context),
+            "bound" to listenerBound,
+            "last_bound_at" to lastBoundAtMs.takeIf { it > 0 },
+            "last_unbound_at" to lastUnboundAtMs.takeIf { it > 0 },
+            "buffered" to pendingBuffer.size,
+            "dropped_overflow" to pendingBuffer.droppedOverflow,
+        )
     }
 }

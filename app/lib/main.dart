@@ -81,6 +81,7 @@ class _ModuleOverviewPageState extends State<ModuleOverviewPage> {
 
   // ---- 通知监听模块（B3 前半：phone.notification.read，独立可选默认关）----
   bool _notifReadEnabled = false; // whale_modules/notification_read_enabled
+  bool? _notifReadBound; // SEC-02：系统是否已实际绑定监听器（与授权分开）
   bool? _notifReadPermissionGranted; // null = 未知（原生侧不可用）
 
   // ---- 受控设备动作模块（B3 前半：phone.device.safe_action，默认关）----
@@ -403,10 +404,12 @@ class _ModuleOverviewPageState extends State<ModuleOverviewPage> {
     try {
       final states = await _transport.getModuleStates();
       final perm = await _transport.getNotificationReadPermissionStatus();
+      final status = await _transport.getNotificationReadStatus();
       if (!mounted) return;
       setState(() {
         _notifReadEnabled = states['notification_read'] ?? false; // 默认关
         _notifReadPermissionGranted = perm == 'granted';
+        _notifReadBound = status['bound'] as bool?;
       });
       _registry.updateNotificationRead(
         permissionGranted: _notifReadPermissionGranted,
@@ -967,6 +970,10 @@ class _ModuleOverviewPageState extends State<ModuleOverviewPage> {
         _row('监听权限', _notifReadPermissionGranted == null
             ? '查询中…'
             : _notifReadPermissionGranted! ? '已授予' : '未授予'),
+        // SEC-02：授权 ≠ 系统已绑定（定制固件可能授权后不绑定），分开显示
+        _row('系统绑定', _notifReadBound == null
+            ? '未知'
+            : _notifReadBound! ? '已绑定' : '未绑定'),
         if (_notifReadPermissionGranted == false)
           Align(
             alignment: Alignment.centerLeft,
