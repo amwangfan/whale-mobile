@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Nova AI Call</string>
+    <string name="account_label">Nova 测试来电</string>
+    <string name="account_ai_label">Nova AI</string>
+</resources>
