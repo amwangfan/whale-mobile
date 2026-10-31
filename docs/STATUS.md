@@ -135,6 +135,14 @@
 - 与 #4 对接：事件经 WssClient 离线队列，payload 已应用层加密
 - 协议版本与兼容影响：无
 
+### EV-02（Issue #12）— 主动提醒闭环（手机侧完成度）
+- 状态：**mobile 部分 device-tested**（2026-11-01，nova 真 core）；Core 运行时自治接线待 whale-core 侧
+- 具体完成：contracts/v1 action.request 增可选 correlation_id（校验器 18/18，示例同步）；whale-core-dev gateway/REST 透传（2e7082c，28 项设备测试过）；NotificationModule 执行后 provider_ref 回显 corr:<id>（审计链闭合）
+- **nova 实测（真 core dev）**：事件 device:event 落库 → POST action 带 correlation_id → executed → 回执 provider_ref=corr:sm-0000000000212 → core receipts 链可追
+- 诚实边界：Core 运行时自治决策接线（sensor_event→situation→rule→remind 的活路由与规则配置）属 whale-core 侧（其 #9 已闭于桥/测试层）；本项在 mobile 侧所需全部能力已就绪且真机验证
+- 负例复核：一键暂停/模块关/撤销 fail-closed 由 BG/SEC 系列覆盖
+- 协议版本与兼容影响：contracts/v1 minor（可选字段）
+
 ---
 
 ## 阶段二（B 系列，Gate A 后启动）
