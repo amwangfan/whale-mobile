@@ -91,3 +91,11 @@ WM-08..WM-15：not_started
 - nova 真 core 实测（2026-11-01）：launch_app 白名单内 executed；com.android.settings→scope_denied；intent://→scope_denied；https 深链→executed；均经校验链
 - 通知监听：逻辑 18 单测全绿；但两台测试机（BOOX Leaf5 固件 + nova NetHunter GSI）均不绑定第三方 NotificationListenerService（系统 settings 已授予、包注册正确、重启无效），疑为定制固件限制——待 Magic8 Pro（常规手机系统）复验
 - 已知边界：launch_app 在 App 后台时 Android 10+ 可能静默拦截前台化（回执 executed 但界面未拉起）——后续按「真实可见性」改进回执语义
+
+---
+
+## 发布记录（2026-11-01）
+
+- 仓已公开：https://github.com/amwangfan/whale-mobile（4 个语义化提交；细粒度历史保留在本地 legacy-history 分支）
+- 发布前泄露扫描：全历史无 API key/私钥/凭据/QQ 号；真实 IP（tailnet 100.x、东京公网）已置换占位符；密钥/签名/测量日志均不入库
+- 推送前全量验证：契约 18/18、flutter 81/81、JUnit 83、gateway 10/10、debug 构建通过
