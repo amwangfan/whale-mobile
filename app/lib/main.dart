@@ -687,6 +687,15 @@ class _ModuleOverviewPageState extends State<ModuleOverviewPage> {
     if (p.consecutiveFailures > 0) {
       text += ' · 连续失败 ${p.consecutiveFailures}（退避中）';
     }
+    // EV-01：治理统计（丢弃原因计数）一并展示
+    final gs = p.governorStats;
+    if (gs.isNotEmpty) {
+      final drops = gs.entries
+          .where((e) => e.key != 'passed' && e.value > 0)
+          .map((e) => '${e.key}=${e.value}')
+          .join(' ');
+      text += '\n治理: 通过 ${gs['passed'] ?? 0}${drops.isNotEmpty ? ' · 丢弃 $drops' : ''}';
+    }
     return text;
   }
 

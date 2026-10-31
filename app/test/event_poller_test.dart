@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:whale_mobile/modules/screenmemo/event_governor.dart';
 import 'package:whale_mobile/modules/screenmemo/event_poller.dart';
 import 'package:whale_mobile/modules/screenmemo/mcp_client.dart';
 import 'package:whale_mobile/transport/transport_client.dart';
@@ -34,6 +35,15 @@ class Conditions {
   bool token = true;
   bool module = true;
 }
+
+/// 治理全放的 governor（poller 单测聚焦游标/幂等，治理由 event_governor_test 覆盖）。
+EventGovernor permissiveGovernor() => EventGovernor(
+      perAppPerHour: 1 << 30,
+      totalPerHour: 1 << 30,
+      mergeWindowMs: 0,
+      simhashThreshold: -1,
+      staleMs: 1 << 60,
+    );
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -104,6 +114,7 @@ void main() {
       // 默认未配 token：start 的立即 kick 会静默跳过，之后测试翻开关手动驱动。
       cond.token = false;
       poller = ScreenMemoEventPoller(
+        governor: permissiveGovernor(),
         client: client,
         sendEvent: ({
           required kind,
@@ -185,6 +196,7 @@ void main() {
 
       // 模拟重启：新 poller 用同一 SharedPreferences，游标从 7 续传。
       final poller2 = ScreenMemoEventPoller(
+        governor: permissiveGovernor(),
         client: client,
         sendEvent: pollerSendNoop,
         transportStates: states.stream,
@@ -248,6 +260,7 @@ void main() {
       // 打开 token：MCP 连接拒绝 → unavailable，静默跳过。
       var tokenReady = false;
       final poller2 = ScreenMemoEventPoller(
+        governor: permissiveGovernor(),
         client: ScreenMemoMcpClient(
           port: deadPort,
           tokenProvider: () async => server.token,
@@ -293,6 +306,7 @@ void main() {
     test('传输离线不轮询（disconnected 状态）', () async {
       await poller.dispose();
       poller = ScreenMemoEventPoller(
+        governor: permissiveGovernor(),
         client: client,
         sendEvent: pollerSendNoop,
         transportStates: states.stream,
@@ -342,6 +356,7 @@ void main() {
       await poller.dispose();
       var tokenReady = false;
       poller = ScreenMemoEventPoller(
+        governor: permissiveGovernor(),
         client: client,
         sendEvent: pollerSendNoop,
         transportStates: states.stream,
