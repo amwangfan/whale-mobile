@@ -129,6 +129,10 @@ class TransportClient {
     'phone.call.ring',
     'phone.call.audio',
     'phone.device.safe_action',
+    // V1.1（GL-01）：眼镜 HUD（端侧无桥时降级手机通知）
+    'glasses.card.show',
+    'glasses.card.update',
+    'glasses.card.dismiss',
   ];
 
   Stream<Map<String, dynamic>>? _rawEvents;
