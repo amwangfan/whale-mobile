@@ -80,6 +80,8 @@ dependencies {
     // androidx.core：通知监听模块的 NotificationManagerCompat.getEnabledListenerPackages
     // （Flutter embedding 本就传递依赖；显式声明以锁定编译期 API）
     implementation("androidx.core:core:1.13.1")
+    // SM-02：ML Kit 中文 OCR（本地识别，与 ScreenMemo 同款依赖；不上云）
+    implementation("com.google.mlkit:text-recognition-chinese:16.0.1")
     testImplementation("junit:junit:4.13.2")
     // SEC-01：队列加密迁移的本地仪器级测试（SQLite/Context 由 Robolectric 提供）
     testImplementation("org.robolectric:robolectric:4.13")
