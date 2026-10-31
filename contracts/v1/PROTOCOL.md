@@ -65,6 +65,7 @@
 
 - 隐私级：`public` / `owner_private` / `owner_sensitive` / `device_secret`（永不进感知事件）。
 - 能力命名：`screen.context.read` `screen.history.search` `screen.evidence.read` `screen.live.subscribe` `phone.notification.post` `phone.notification.read` `phone.call.ring` `phone.call.audio` `phone.device.safe_action`。
+- V1.1 候选（GL-01）：`glasses.card.show` / `glasses.card.update` / `glasses.card.dismiss`（眼镜 HUD；无桥/离线时端侧降级手机通知并回执 provider_ref=degraded:*，绝不伪报 shown）。
 - 默认最小权限；群聊/非主人会话对 screen.* 一律硬上限拒绝。
 
 ## 6. 幂等与离线
