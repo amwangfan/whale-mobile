@@ -24,6 +24,13 @@ object CaptureModule {
     /** SM-02：持久化开关（capture_persist_enabled，默认 false = 纯影子模式）。 */
     const val KEY_PERSIST_ENABLED = "capture_persist_enabled"
 
+    /** SM-03：数据源（whale_capture/data_source：mcp|builtin，默认 mcp）。 */
+    const val KEY_DATA_SOURCE = "data_source"
+    const val SOURCE_MCP = "mcp"
+    const val SOURCE_BUILTIN = "builtin"
+
+    /** 数据源切换审计（filesDir/capture/datasource_audit.log；不含内容）。 */
+
     /** 排除包名（whale_capture/excluded_packages，Set）。 */
     private const val EXCLUDED_PREFS = "whale_capture"
     private const val KEY_EXCLUDED = "excluded_packages"
@@ -96,6 +103,40 @@ object CaptureModule {
         }
     }
 
+    fun dataSource(context: Context): String =
+        context.applicationContext
+            .getSharedPreferences(EXCLUDED_PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_DATA_SOURCE, SOURCE_MCP) ?: SOURCE_MCP
+
+    /**
+     * 切换数据源（可撤销）。前置条件硬校验：builtin 要求持久化已开 +
+     * 无障碍已授权；不满足直接返回 false（UI 提示恢复建议）。
+     */
+    fun setDataSource(context: Context, source: String): Boolean {
+        if (source !in setOf(SOURCE_MCP, SOURCE_BUILTIN)) return false
+        if (source == SOURCE_BUILTIN &&
+            (!isPersistEnabled(context) || !accessibilityGranted(context))
+        ) {
+            return false
+        }
+        val from = dataSource(context)
+        context.applicationContext
+            .getSharedPreferences(EXCLUDED_PREFS, Context.MODE_PRIVATE)
+            .edit().putString(KEY_DATA_SOURCE, source).apply()
+        appendAudit(context, "data_source $from -> $source")
+        return true
+    }
+
+    /** 审计日志（仅操作与时间，绝不含 OCR/通知内容）。 */
+    fun appendAudit(context: Context, line: String) {
+        try {
+            val f = java.io.File(context.filesDir, "capture/datasource_audit.log")
+            f.parentFile?.mkdirs()
+            f.appendText("${java.time.Instant.now()} $line\n")
+        } catch (_: Throwable) {
+        }
+    }
+
     /** 模块状态（UI/诊断）：开关、权限、互斥、服务存活、影子统计。 */
     fun status(context: Context): Map<String, Any?> = mapOf(
         "enabled" to isEnabled(context),
@@ -103,6 +144,7 @@ object CaptureModule {
         "conflict_standalone" to standaloneScreenMemoActive(context),
         "service_running" to ShadowCaptureService.isRunning,
         "persist_enabled" to isPersistEnabled(context),
+        "data_source" to dataSource(context),
         "stats" to CaptureStats.snapshot(),
     )
 }

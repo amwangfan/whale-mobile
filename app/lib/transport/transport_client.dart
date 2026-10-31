@@ -381,6 +381,24 @@ class TransportClient {
   Future<void> openAccessibilitySettings() =>
       _methods.invokeMethod<void>('openAccessibilitySettings');
 
+  /// SM-02/03：持久化开关（默认 false=纯影子）。
+  Future<void> setCapturePersistEnabled(bool enabled) =>
+      _methods.invokeMethod<void>(
+          'setCapturePersistEnabled', <String, dynamic>{'enabled': enabled});
+
+  /// SM-03：数据源切换（mcp|builtin）；返回 false=前置条件不满足。
+  Future<bool> setCaptureDataSource(String source) async =>
+      await _methods.invokeMethod<bool>(
+          'setCaptureDataSource', <String, dynamic>{'source': source}) ??
+      false;
+
+  /// SM-02/03：从导出目录增量导入 ScreenMemo 数据，返回导入报告。
+  Future<Map<String, dynamic>> importScreenMemoData(String basePath) async =>
+      Map<String, dynamic>.from(await _methods.invokeMethod<Map<dynamic, dynamic>>(
+              'importScreenMemoData',
+              <String, dynamic>{'base_path': basePath}) ??
+          <String, dynamic>{});
+
   /// 读通知监听 App 白名单（whale_notif_read/allowed_apps；默认空 = 一个都不读）。
   Future<Set<String>> getNotificationReadAllowedApps() async {
     final res = await _methods

@@ -85,7 +85,11 @@ class _ModuleOverviewPageState extends State<ModuleOverviewPage> {
 
   // ---- 影子采集模块（SM-01；默认关；与独立 ScreenMemo 采集互斥）----
   bool _captureEnabled = false;
+  bool _capturePersist = false;
   Map<String, dynamic> _captureStatus = const {};
+  final TextEditingController _importPathController =
+      TextEditingController(text: '/sdcard/whale_import');
+  String _importReport = '';
   bool? _notifReadPermissionGranted; // null = 未知（原生侧不可用）
 
   // ---- 受控设备动作模块（B3 前半：phone.device.safe_action，默认关）----
@@ -415,6 +419,7 @@ class _ModuleOverviewPageState extends State<ModuleOverviewPage> {
       setState(() {
         _captureStatus = status;
         _captureEnabled = status['enabled'] as bool? ?? false;
+        _capturePersist = status['persist_enabled'] as bool? ?? false;
       });
     } catch (_) {/* 原生侧不可用（单元测试环境） */}
   }
@@ -1100,11 +1105,84 @@ class _ModuleOverviewPageState extends State<ModuleOverviewPage> {
             _row('统计',
                 'attempts=${stats['attempts'] ?? 0} unique=${stats['unique'] ?? 0} '
                 'dup=${stats['duplicates'] ?? 0} fail=${stats['failures'] ?? 0} '
-                'latency=${stats['last_latency_ms'] ?? 0}ms'),
+                'latency=${stats['last_latency_ms'] ?? 0}ms '
+                'persisted=${stats['persisted'] ?? 0}'),
+            const Divider(height: 20),
+            Row(
+              children: [
+                const Expanded(child: Text('持久化（存图+OCR+索引）')),
+                Switch(
+                  value: _capturePersist,
+                  onChanged: _allPaused ? null : (v) async {
+                    setState(() => _capturePersist = v);
+                    await _transport.setCapturePersistEnabled(v);
+                    await _initCapture();
+                  },
+                ),
+              ],
+            ),
+            Builder(builder: (context) {
+              final src = _captureStatus['data_source'] as String? ?? 'mcp';
+              final builtin = src == 'builtin';
+              return Row(
+                children: [
+                  Expanded(
+                    child: Text('屏幕查询数据源：${builtin ? '内置采集库' : 'ScreenMemo MCP'}'),
+                  ),
+                  Switch(
+                    value: builtin,
+                    onChanged: _allPaused ? null : (v) async {
+                      final ok = await _transport
+                          .setCaptureDataSource(v ? 'builtin' : 'mcp');
+                      if (!ok) {
+                        _appendLog('数据源切换被拒：需先开持久化并完成无障碍授权');
+                      }
+                      await _initCapture();
+                    },
+                  ),
+                ],
+              );
+            }),
+            const SizedBox(height: 4),
+            TextField(
+              controller: _importPathController,
+              decoration: const InputDecoration(
+                labelText: 'ScreenMemo 导出目录（迁移）',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: _runImport,
+                    child: const Text('导入 ScreenMemo 数据'),
+                  ),
+                ),
+              ],
+            ),
+            if (_importReport.isNotEmpty) _row('导入结果', _importReport),
           ],
         ),
       ),
     );
+  }
+
+  Future<void> _runImport() async {
+    setState(() => _importReport = '导入中…');
+    try {
+      final r = await _transport.importScreenMemoData(_importPathController.text.trim());
+      setState(() {
+        _importReport = '分库 ${r['shards_scanned']} · 导入 ${r['rows_imported']} · '
+            '重复 ${r['rows_duplicate']} · 删除跳过 ${r['rows_deleted']}'
+            '${(r['errors'] as List?)?.isNotEmpty == true ? ' · 错误 ${(r['errors'] as List).length}' : ''}';
+      });
+      _appendLog('ScreenMemo 导入完成: $_importReport');
+    } catch (e) {
+      setState(() => _importReport = '导入失败: $e');
+    }
   }
 
   Widget _buildScreenMemoCard() {
