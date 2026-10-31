@@ -112,8 +112,9 @@ class _ModuleOverviewPageState extends State<ModuleOverviewPage> {
     }, onError: (Object _) {/* 通道异常不致命 */});
     _actionSub = _transport.actionRequests.listen((req) {
       _appendLog('action.request: ${req.capability} id=${req.actionId}');
-      // 无原生执行器的 capability：阶段一演示仅回执 accepted，不真正执行。
-      _transport.sendActionReceipt(req.actionId, 'accepted');
+      // 无原生执行器的 capability：诚实终态（SEC-03），不再悬挂 accepted。
+      _transport.sendActionReceipt(req.actionId, 'failed',
+          errorCode: 'unavailable');
     }, onError: (Object _) {});
     _receiptSub = _transport.actionReceipts.listen((r) {
       final label =

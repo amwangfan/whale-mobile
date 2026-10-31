@@ -80,6 +80,26 @@ class OfflineQueue(
         )
         db.execSQL("CREATE INDEX idx_queue_state_created ON uplink_queue(state, created_at)")
         db.execSQL("CREATE TABLE queue_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        createActionDedupTable(db)
+    }
+
+    private fun createActionDedupTable(db: SQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS action_dedup (
+              idem_key       TEXT PRIMARY KEY,
+              action_id      TEXT NOT NULL,
+              capability     TEXT NOT NULL,
+              terminal_state TEXT,
+              error_code     TEXT,
+              created_at     INTEGER NOT NULL,
+              updated_at     INTEGER NOT NULL
+            )
+            """.trimIndent()
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS idx_action_dedup_action_id ON action_dedup(action_id)",
+        )
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -87,11 +107,11 @@ class OfflineQueue(
             // SEC-01 v1→v2：明文 payload 事务式加密迁移。
             // 幂等：已带 v1. 前缀的行跳过；无法加密的行删除（fail closed，不留明文）。
             migratePlaintextToEncrypted(db)
-            return
         }
-        db.execSQL("DROP TABLE IF EXISTS uplink_queue")
-        db.execSQL("DROP TABLE IF EXISTS queue_meta")
-        onCreate(db)
+        if (oldVersion < 3) {
+            // SEC-03 v3：动作幂等表（与加密迁移叠加，不丢队列内容）。
+            createActionDedupTable(db)
+        }
     }
 
     /** v1→v2 迁移：读旧明文 → 加密 → 写回，单事务；无 cipher 或加密失败的行删除。 */
@@ -347,6 +367,96 @@ class OfflineQueue(
         null, null, null,
     ).use { c -> if (c.moveToFirst()) c.getString(0).toLongOrNull() ?: 0L else 0L }
 
+    // ---- 动作幂等持久化（SEC-03） ----
+
+    data class ActionRecord(
+        val idemKey: String,
+        val actionId: String,
+        val capability: String,
+        val terminalState: String?,
+        val errorCode: String?,
+    )
+
+    /** 记录新动作（幂等）。返回 true=新插入；false=键已存在。 */
+    @Synchronized
+    fun recordActionIfAbsent(
+        idemKey: String,
+        actionId: String,
+        capability: String,
+        nowMs: Long = System.currentTimeMillis(),
+    ): Boolean {
+        val values = ContentValues().apply {
+            put("idem_key", idemKey)
+            put("action_id", actionId)
+            put("capability", capability)
+            put("created_at", nowMs)
+            put("updated_at", nowMs)
+        }
+        val rowId = writableDatabase.insertWithOnConflict(
+            "action_dedup", null, values, SQLiteDatabase.CONFLICT_IGNORE,
+        )
+        if (rowId >= 0) evictActionDedup(writableDatabase)
+        return rowId >= 0
+    }
+
+    fun getActionRecord(idemKey: String): ActionRecord? = readableDatabase.query(
+        "action_dedup",
+        arrayOf("idem_key", "action_id", "capability", "terminal_state", "error_code"),
+        "idem_key = ?", arrayOf(idemKey), null, null, null,
+    ).use { c ->
+        if (!c.moveToFirst()) return null
+        ActionRecord(
+            idemKey = c.getString(0),
+            actionId = c.getString(1),
+            capability = c.getString(2),
+            terminalState = if (c.isNull(3)) null else c.getString(3),
+            errorCode = if (c.isNull(4)) null else c.getString(4),
+        )
+    }
+
+    /** 记录终态（executed/failed/unknown；幂等覆盖——同一终态重记无副作用）。 */
+    @Synchronized
+    fun setActionTerminal(
+        idemKey: String,
+        state: String,
+        errorCode: String?,
+        nowMs: Long = System.currentTimeMillis(),
+    ): Boolean = writableDatabase.update(
+        "action_dedup",
+        ContentValues().apply {
+            put("terminal_state", state)
+            put("error_code", errorCode)
+            put("updated_at", nowMs)
+        },
+        "idem_key = ?", arrayOf(idemKey),
+    ) > 0
+
+    /** Dart 侧回执路径按 action_id 找键补记终态。 */
+    @Synchronized
+    fun setActionTerminalByActionId(
+        actionId: String,
+        state: String,
+        errorCode: String?,
+        nowMs: Long = System.currentTimeMillis(),
+    ): Boolean = writableDatabase.update(
+        "action_dedup",
+        ContentValues().apply {
+            put("terminal_state", state)
+            put("error_code", errorCode)
+            put("updated_at", nowMs)
+        },
+        "action_id = ?", arrayOf(actionId),
+    ) > 0
+
+    /** 有界：超过 [ACTION_DEDUP_CAPACITY] 时淘汰最旧记录。 */
+    private fun evictActionDedup(db: SQLiteDatabase) {
+        db.execSQL(
+            "DELETE FROM action_dedup WHERE idem_key IN (" +
+                "SELECT idem_key FROM action_dedup ORDER BY created_at DESC " +
+                "LIMIT -1 OFFSET $ACTION_DEDUP_CAPACITY)",
+        )
+    }
+
     // ---- payload 加解密（SEC-01） ----
 
     /** 入库前加密；无 cipher（测试/降级）时原样存储。 */
@@ -370,12 +480,15 @@ class OfflineQueue(
     companion object {
         private const val TAG = "WhaleOfflineQueue"
 
-        /** DB v2：payload_json 列存 `v1.` 前缀密文（SEC-01）。 */
-        private const val DB_VERSION = 2
+        /** DB v2：payload_json 列存 `v1.` 前缀密文（SEC-01）；v3：action_dedup（SEC-03）。 */
+        private const val DB_VERSION = 3
         private const val META_DROPPED = "dropped_count"
 
         /** 密文格式版本前缀（格式演进时递增并写迁移）。 */
         const val CIPHER_PREFIX = "v1."
+
+        /** 动作幂等表容量（FIFO 淘汰）。 */
+        const val ACTION_DEDUP_CAPACITY = 4096
         const val DEFAULT_DB_NAME = "whale_transport.db"
         const val DEFAULT_CAPACITY = 1000
     }

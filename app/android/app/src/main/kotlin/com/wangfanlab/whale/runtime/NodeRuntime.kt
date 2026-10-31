@@ -416,6 +416,9 @@ class NodeRuntime private constructor(
         )
     }
 
+    /** SEC-03：无原生执行器的 action 只有在 UI 在时才转发 Dart，否则客户端回 unavailable。 */
+    override fun hasUiActionHandler(): Boolean = uiEventHub.hasListeners
+
     override fun onProtocolError(code: String, message: String, refId: String) {
         // 撤销/认证失败为终态：标记 revoked，清除恢复上下文（BG-02 不擅自重连）。
         if (code == "device_revoked" || code == "auth_failed") {
