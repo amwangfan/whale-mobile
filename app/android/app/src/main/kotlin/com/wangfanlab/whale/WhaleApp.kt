@@ -20,5 +20,8 @@ class WhaleApp : Application() {
         super.onCreate()
         nodeRuntime = NodeRuntime.get(this)
         nodeRuntime.start()
+        // BG-02：进程新建（含开机广播拉起）时按策略恢复连接；
+        // 尊重一键暂停/用户断开/设备撤销，不擅自重连。
+        nodeRuntime.recoverIfNeeded("process_start")
     }
 }

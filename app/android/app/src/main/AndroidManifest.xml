@@ -18,6 +18,9 @@
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.DISABLE_KEYGUARD" />
+    <!-- BG-02：开机后按策略恢复连接（尊重暂停/撤销；Android 15 不允许开机拉起
+         dataSync 前台服务，届时降级为进程内连接，不绕过） -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <application
         android:label="Whale"
         android:name=".WhaleApp"
@@ -59,6 +62,15 @@
             android:name="com.wangfanlab.whale.runtime.NodeService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+
+        <!-- BG-02：开机恢复入口（系统保护广播，无需运行时权限） -->
+        <receiver
+            android:name="com.wangfanlab.whale.runtime.BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
 
         <!-- ==================== VoIP 模块（B4，自管 Telecom 来电） ==================== -->
         <!-- 来电入口 = WSS call.invite / action.request phone.call.ring；

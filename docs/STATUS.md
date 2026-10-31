@@ -69,6 +69,15 @@
 - 尚未实现：Doze/重启/网络切换恢复矩阵（BG-02）；Android 15 dataSync 6h 上限的降级提示（BG-02）
 - 协议版本与兼容影响：无（contracts/v1 未动）
 
+### BG-02（Issue #3）— 长期后台存活、重启恢复、网络恢复与任务调度
+- 状态：**device-tested**（2026-11-01，leaf5 + nova 真 core）
+- 具体完成：`RecoveryPolicy`（曾连接&&未暂停&&未撤销 才恢复，纯逻辑可单测）；`BootReceiver`（BOOT_COMPLETED→评估→重连）；`NodeRuntime.recoverIfNeeded`（process_start/service_restart/boot 三入口）；默认网络回调（恢复即重置退避立即重连）；`WssClient.reconnectNow` + `last_disconnect_reason` 诊断；getStateInfo 增 network_available/was_connected/battery_opt_ignored/node_service_running；毒丸防护（event_id<16 队列条目拦截丢弃，修复旧版 sm-N 短 id 随重连无限重发被 core schema 拒绝的问题）
+- **leaf5 实测**：kill -9 → START_STICKY 拉起 → 自动重连 online；服务端（dev core）重启 → 双机 55s 内自动恢复；wifi 断开/恢复 → 自动回线；**整机重启** → BootReceiver 评估发起重连 → FGS 前台 → online（logcat 原文存档）
+- **nova 实测**：写入 all_paused=true 后杀进程 → 进程被拉起但恢复评估明确「不恢复（paused=true）」，core 侧保持 offline——一键暂停优先于一切后台恢复
+- 诚实边界：force-stop 后任何应用都不能自动恢复（Android 语义，不绕过）；Android 15 不允许开机拉起 dataSync FGS（届时进程内连接降级）；Doze/OEM 白名单差异待 Magic8 Pro（#7）
+- 测试：JUnit 97/97（新增 RecoveryPolicyTest 5 例）；flutter 81/81；analyze 0
+- 协议版本与兼容影响：无
+
 ---
 
 ## 阶段二（B 系列，Gate A 后启动）
