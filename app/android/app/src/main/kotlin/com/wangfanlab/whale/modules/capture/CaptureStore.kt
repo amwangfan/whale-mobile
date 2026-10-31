@@ -157,6 +157,11 @@ class CaptureStore(
         }
 
     @Synchronized
+    fun getById(id: Long): Row? = readableDatabase.query(
+        "screenshots", null, "id = ?", arrayOf(id.toString()), null, null, null,
+    ).use { c -> if (c.moveToFirst()) readRow(c) else null }
+
+    @Synchronized
     fun count(): Long = readableDatabase.compileStatement(
         "SELECT COUNT(*) FROM screenshots",
     ).use { it.simpleQueryForLong() }

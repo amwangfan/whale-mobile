@@ -119,6 +119,14 @@
 - 诚实边界：迁移期条目不带本地图像（image_path 空，evidence.read 对其回 unavailable）；数据源切换属 #10
 - 协议版本与兼容影响：无
 
+### SM-03（Issue #10）— 统一 APK 数据源切换、发布回滚与旧 ScreenMemo 兼容期
+- 状态：**device-tested**（2026-11-01，leaf5 真 core）
+- 具体完成：`NativeScreenQueryHandler`（builtin 数据源：context.read/history.search/evidence.read 直答 CaptureStore，字段形状与 MCP adapter 对齐，Core 无感知；证据 JPEG 帧预算阶梯压缩）；数据源开关 whale_capture/data_source（mcp|builtin，默认 mcp；builtin 需持久化+无障碍前置校验，不过拒绝）；切换审计日志（无内容）；UI 采集卡加持久化开关/数据源切换/迁移导入入口与结果展示；NodeRuntime sensor.query 路由（builtin 优先，MCP 回退路径保留）
+- **leaf5 实测**：builtin 数据源下销毁 UI → `screen.history.search("设置")` → source=capture.local 真实命中（OCR snippet 200 字内、opaque capture:N 引用）；`screen.evidence.read capture:1` → JPEG 压缩回传（64KB，downscaled）；还原回 mcp 后 ScreenMemo 独立采集不受影响
+- 回滚：数据源默认 mcp；builtin 可随时切回；导入工具只读旧库且备份先行；旧 ScreenMemo APK 不卸载要求
+- 测试：JUnit 142/142（NativeScreenQueryHandlerTest 7 例）；flutter 81/81
+- 协议版本与兼容影响：无（source 字段细化，字段向后兼容）
+
 ---
 
 ## 阶段二（B 系列，Gate A 后启动）

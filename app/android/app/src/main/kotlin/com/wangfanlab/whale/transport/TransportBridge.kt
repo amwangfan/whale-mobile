@@ -453,6 +453,15 @@ class TransportBridge(
                     }.start()
                 }
 
+                /** SM-03：数据源切换（mcp|builtin；builtin 前置校验不过返回 false）。 */
+                "setCaptureDataSource" -> {
+                    val source = call.argument<String>("source")
+                        ?: return result.error("bad_args", "missing source", null)
+                    val ok = com.wangfanlab.whale.modules.capture.CaptureModule
+                        .setDataSource(appContext, source)
+                    result.success(ok)
+                }
+
                 "setCapturePersistEnabled" -> {
                     val enabled = call.argument<Boolean>("enabled")
                         ?: return result.error("bad_args", "missing enabled", null)
