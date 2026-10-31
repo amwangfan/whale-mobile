@@ -111,6 +111,14 @@
 - 测试：JUnit 122/122（CaptureDeciderTest 9 例）；flutter 81/81
 - 协议版本与兼容影响：无（影子统计仅本地，未上行）
 
+### SM-02（Issue #9）— 原生 OCR、本地索引与 ScreenMemo 数据迁移工具（可回滚）
+- 状态：**device-tested**（2026-11-01，leaf5 真机）
+- 具体完成：`CaptureStore`（whale_capture.db：截图元数据+去重键(capture_time,package,dhash)+FTS5 索引，FTS5 不可用时自动 LIKE 降级——BOOX 实测触发该路径）；`MlKitOcrEngine`（text-recognition-chinese 本地识别，Tasks.await 同步等待——修复 listener 回调丢失假超时）；`CapturePipeline`（唯一帧→JPEG 落 filesDir→OCR→索引，失败记 ocr_status=failed 可重试）；`ScreenMemoImporter`（真实分片布局 shards/<pkg>/<year>/smm_*.db、shots_YYYYMM 表；校验→备份→事务增量导入（checkpoint 断点续跑）→去重幂等；is_deleted 尊重旧库删除语义）；persist 开关（capture_persist_enabled，默认 false 纯影子）；importScreenMemoData 桥（主线程回执）
+- **leaf5 实测**：唯一帧落盘 JPG + ML Kit 中文 OCR 真实命中（设置页 163 字：「设置/网络和互联网/…」）+ 索引可查；真实分库夹具（脱敏后入库测试资源）导入 77/77 行、去重/checkpoint/备份全过
+- 测试：JUnit 135/135（CaptureStoreTest 8 + ImporterTest 5 含真实夹具）；flutter 81/81
+- 诚实边界：迁移期条目不带本地图像（image_path 空，evidence.read 对其回 unavailable）；数据源切换属 #10
+- 协议版本与兼容影响：无
+
 ---
 
 ## 阶段二（B 系列，Gate A 后启动）

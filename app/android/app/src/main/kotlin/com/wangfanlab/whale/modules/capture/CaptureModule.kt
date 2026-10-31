@@ -21,6 +21,9 @@ object CaptureModule {
     const val PREFS_NAME = "whale_modules"
     const val KEY_ENABLED = "capture_enabled"
 
+    /** SM-02：持久化开关（capture_persist_enabled，默认 false = 纯影子模式）。 */
+    const val KEY_PERSIST_ENABLED = "capture_persist_enabled"
+
     /** 排除包名（whale_capture/excluded_packages，Set）。 */
     private const val EXCLUDED_PREFS = "whale_capture"
     private const val KEY_EXCLUDED = "excluded_packages"
@@ -32,6 +35,17 @@ object CaptureModule {
         context.applicationContext
             .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .getBoolean(KEY_ENABLED, false)
+
+    fun isPersistEnabled(context: Context): Boolean =
+        context.applicationContext
+            .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getBoolean(KEY_PERSIST_ENABLED, false)
+
+    fun setPersistEnabled(context: Context, enabled: Boolean) {
+        context.applicationContext
+            .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putBoolean(KEY_PERSIST_ENABLED, enabled).apply()
+    }
 
     fun setEnabled(context: Context, enabled: Boolean) {
         context.applicationContext
@@ -88,6 +102,7 @@ object CaptureModule {
         "accessibility_granted" to accessibilityGranted(context),
         "conflict_standalone" to standaloneScreenMemoActive(context),
         "service_running" to ShadowCaptureService.isRunning,
+        "persist_enabled" to isPersistEnabled(context),
         "stats" to CaptureStats.snapshot(),
     )
 }

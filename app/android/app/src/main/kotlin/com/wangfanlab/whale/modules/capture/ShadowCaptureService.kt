@@ -144,19 +144,33 @@ class ShadowCaptureService : AccessibilityService() {
         lastCaptureMs = System.currentTimeMillis()
         val exec = java.util.concurrent.Executor { r -> worker?.post(r) }
         CaptureStats.noteAttempt()
-        ShotTaker30.take(this, exec) { hash, latencyMs, errorCode ->
+        val persist = CaptureModule.isPersistEnabled(this)
+        ShotTaker30.take(this, exec, keepBitmap = persist) { hash, latencyMs, errorCode, bitmap ->
             when {
                 hash != null -> {
                     val duplicate = CaptureDecider.isDuplicate(lastHash, hash)
                     if (!duplicate) {
                         lastHash = hash
                         CaptureStats.noteUnique(latencyMs)
+                        // SM-02：非影子模式（persist 开启）→ 存图 + OCR + 索引
+                        if (persist && bitmap != null) {
+                            val rowId = com.wangfanlab.whale.runtime.NodeRuntime.peek()
+                                ?.capturePipeline?.process(
+                                    bitmap = bitmap,
+                                    dhash = hash,
+                                    packageName = targetPackage,
+                                    appLabel = targetPackage,
+                                    captureTimeMs = System.currentTimeMillis(),
+                                ) ?: -1
+                            CaptureStats.notePersisted(rowId >= 0)
+                        }
                     } else {
                         CaptureStats.noteDuplicate(latencyMs)
                     }
                 }
                 else -> CaptureStats.noteFailure(errorCode ?: -1)
             }
+            bitmap?.recycle() // 管线用完/影子未用：统一在此回收
         }
     }
 
@@ -225,6 +239,15 @@ object CaptureStats {
         failures++
     }
 
+    @Volatile
+    var persisted: Long = 0
+        private set
+
+    @Synchronized
+    fun notePersisted(ok: Boolean) {
+        if (ok) persisted++
+    }
+
     @Synchronized
     fun noteSkip(reason: String) {
         lastSkipReason = reason
@@ -241,6 +264,7 @@ object CaptureStats {
         "last_latency_ms" to lastLatencyMs,
         "last_skip_reason" to lastSkipReason,
         "skips_by_reason" to skipsByReason,
+        "persisted" to persisted,
     )
 
     @Synchronized

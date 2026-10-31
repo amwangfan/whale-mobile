@@ -424,6 +424,43 @@ class TransportBridge(
                     result.success(true)
                 }
 
+                /** SM-02：ScreenMemo 导出目录增量导入（只读旧库；幂等 checkpoint）。 */
+                "importScreenMemoData" -> {
+                    val base = call.argument<String>("base_path")
+                        ?: return result.error("bad_args", "missing base_path", null)
+                    // MethodChannel.Result 必须主线程回执；导入本身在后台线程跑
+                    val main = android.os.Handler(android.os.Looper.getMainLooper())
+                    Thread {
+                        try {
+                            val report = com.wangfanlab.whale.modules.capture.migration
+                                .ScreenMemoImporter(appContext, runtime.captureStore)
+                                .import(java.io.File(base))
+                            main.post {
+                                result.success(
+                                    mapOf(
+                                        "shards_scanned" to report.shardsScanned,
+                                        "rows_imported" to report.rowsImported,
+                                        "rows_duplicate" to report.rowsSkippedDuplicate,
+                                        "rows_deleted" to report.rowsSkippedDeleted,
+                                        "errors" to report.errors,
+                                        "backup_dir" to report.backupDir,
+                                    )
+                                )
+                            }
+                        } catch (t: Throwable) {
+                            main.post { result.error("internal", t.message, null) }
+                        }
+                    }.start()
+                }
+
+                "setCapturePersistEnabled" -> {
+                    val enabled = call.argument<Boolean>("enabled")
+                        ?: return result.error("bad_args", "missing enabled", null)
+                    com.wangfanlab.whale.modules.capture.CaptureModule
+                        .setPersistEnabled(appContext, enabled)
+                    result.success(true)
+                }
+
                 else -> result.notImplemented()
             }
         } catch (e: Exception) {

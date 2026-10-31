@@ -18,10 +18,15 @@ import java.util.concurrent.Executor
 @androidx.annotation.RequiresApi(Build.VERSION_CODES.R)
 object ShotTaker30 {
 
+    /**
+     * @param keepBitmap true 时 onResult 携带软件位图（调用方负责回收）；
+     *     false（影子模式）时内部算完 dHash 即回收，onResult 的 bitmap 恒为 null。
+     */
     fun take(
         service: AccessibilityService,
         executor: Executor,
-        onResult: (hash: Long?, latencyMs: Long, errorCode: Int?) -> Unit,
+        keepBitmap: Boolean = false,
+        onResult: (hash: Long?, latencyMs: Long, errorCode: Int?, bitmap: Bitmap?) -> Unit,
     ) {
         val startMs = SystemClock.elapsedRealtime()
         try {
@@ -33,7 +38,7 @@ object ShotTaker30 {
                         val hw = Bitmap.wrapHardwareBuffer(result.hardwareBuffer, result.colorSpace)
                         result.hardwareBuffer.close()
                         if (hw == null) {
-                            onResult(null, latency, -2)
+                            onResult(null, latency, -2, null)
                             return
                         }
                         // HARDWARE 位图不可读像素：先转 ARGB_8888 软件位图
@@ -46,23 +51,29 @@ object ShotTaker30 {
                             hw.recycle()
                         }
                         if (sw == null) {
-                            onResult(null, latency, -3)
+                            onResult(null, latency, -3, null)
                             return
                         }
-                        try {
-                            onResult(DHash.compute(sw), latency, null)
-                        } finally {
-                            sw.recycle()
+                        val hash = DHash.compute(sw)
+                        if (keepBitmap) {
+                            // 位图所有权移交调用方（持久化管线；用后回收）
+                            onResult(hash, latency, null, sw)
+                        } else {
+                            try {
+                                onResult(hash, latency, null, null)
+                            } finally {
+                                sw.recycle()
+                            }
                         }
                     }
 
                     override fun onFailure(errorCode: Int) {
-                        onResult(null, SystemClock.elapsedRealtime() - startMs, errorCode)
+                        onResult(null, SystemClock.elapsedRealtime() - startMs, errorCode, null)
                     }
                 },
             )
         } catch (t: Throwable) {
-            onResult(null, SystemClock.elapsedRealtime() - startMs, -1)
+            onResult(null, SystemClock.elapsedRealtime() - startMs, -1, null)
         }
     }
 }
