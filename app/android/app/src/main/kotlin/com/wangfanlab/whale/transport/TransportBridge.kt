@@ -404,6 +404,26 @@ class TransportBridge(
                 "getListenableApps" ->
                     result.success(NotificationReadModule.listListenableApps(appContext))
 
+                // ---- 影子采集模块（SM-01；默认关；影子统计不含内容数据） ----
+
+                "getCaptureStatus" -> result.success(
+                    com.wangfanlab.whale.modules.capture.CaptureModule.status(appContext)
+                )
+
+                "setCaptureEnabled" -> {
+                    val enabled = call.argument<Boolean>("enabled")
+                        ?: return result.error("bad_args", "missing enabled", null)
+                    com.wangfanlab.whale.modules.capture.CaptureModule.setEnabled(appContext, enabled)
+                    Log.i(TAG, "影子采集模块开关: $enabled")
+                    result.success(true)
+                }
+
+                "openAccessibilitySettings" -> {
+                    com.wangfanlab.whale.modules.capture.CaptureModule
+                        .openAccessibilitySettings(appContext)
+                    result.success(true)
+                }
+
                 else -> result.notImplemented()
             }
         } catch (e: Exception) {
