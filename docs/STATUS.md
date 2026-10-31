@@ -94,6 +94,14 @@
 - 设备兼容记录：leaf5（BOOX 固件）历史观测不绑定；Magic8 Pro 复测归 #7
 - 协议版本与兼容影响：无
 
+### SEC-03（Issue #6）— 动作回执终态语义、幂等持久化及真实可见性
+- 状态：**device-tested**（2026-11-01，nova 真 core）
+- 具体完成：action_dedup 持久幂等表（whale_transport.db v3，4096 容量 FIFO）；WssClient 下行幂等改读持久表——重复键：在飞→重发 received、已终结→重发真实终态、**跨重启未终结→unknown 绝不重放**；无执行器且无 UI → 立即 failed/unavailable（不再悬挂 accepted）；Dart 未注册 capability 回 failed/unavailable；Dart/执行器终态均落幂等表（sendActionReceipt 按 action_id 补记）；校验失败（expired/scope_denied/capability_unknown）同步落终态
+- **nova 实测**：同幂等键 REST 重发 → core 409 duplicate（端侧持久表为深度防御）；无 UI 时 screen.live.subscribe（无执行器）→ **failed/unavailable**；无 UI 时 notification.post → **executed**（两条路径均诚实终态）
+- 诚实边界：safe_action launch_app 维持 foreground_verified/background_restricted/unverified_no_usage_access 三态（此前已实现）；跨重启 unknown 的设备端注入演练因设备无 sqlite3 未做，由 Robolectric 存储层测试 + 代码审查覆盖
+- 测试：JUnit 113/113（新增 ActionDedupStoreTest 6 例）；flutter 81/81
+- 协议版本与兼容影响：无（回执状态机不变；端侧幂等不依赖 core 行为）
+
 ---
 
 ## 阶段二（B 系列，Gate A 后启动）

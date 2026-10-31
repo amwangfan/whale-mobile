@@ -61,6 +61,12 @@ class WssClient(
         fun onSensorQuery(payload: Map<String, Any?>): Boolean = false
 
         /**
+         * SEC-03：是否有 UI 侧处理器可承接「无原生执行器」的 action。
+         * false 时客户端立即回 failed/unavailable（不再回 accepted 后悬挂）。
+         */
+        fun hasUiActionHandler(): Boolean = false
+
+        /**
          * 本地执行器处理的 action 到达终态（executed/failed）时回调（已在主线程）。
          * 用于 UI 展示最近回执；不影响已上行的 receipt。
          */
@@ -138,11 +144,9 @@ class WssClient(
     private var serverTimeOffsetMs = 0L
     // action 执行器注册表：capability → 执行器（注册/注销可跨线程，读在 executor 线程）。
     private val actionExecutors = ConcurrentHashMap<String, ActionExecutor>()
-    // 下行幂等（§6）：保留最近处理的 idempotency_key，防重连后重复下发导致重复执行。
-    private val seenIdempotencyKeys = object : LinkedHashMap<String, Boolean>(128, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Boolean>?): Boolean =
-            size > 4096
-    }
+    // 本进程内正在执行中的 idempotency_key（配合持久化 [queue] 区分
+    // 「同会话在飞」与「跨重启结果不明」——后者回 unknown，绝不自动重放）。
+    private val inFlightActionKeys = HashSet<String>()
 
     // ------------------------------------------------------------- 公共 API
 
@@ -247,6 +251,10 @@ class WssClient(
         providerRef: String? = null,
     ) {
         executor.execute {
+            // SEC-03：业务层（Dart）终态也落幂等表，重连重放可返回真实终态。
+            if (state == "executed" || state == "failed" || state == "unknown") {
+                queue.setActionTerminalByActionId(actionId, state, errorCode)
+            }
             val payload = LinkedHashMap<String, Any?>()
             payload["action_id"] = actionId
             payload["state"] = state
@@ -485,43 +493,79 @@ class WssClient(
             )
         }
 
-        // §6：幂等去重 —— 重复键只重收回执，不再分发执行
-        if (seenIdempotencyKeys.containsKey(idemKey)) {
-            Log.i(TAG, "重复 action.request（idempotency_key=$idemKey），仅重发 received 回执")
-            receipt("received")
+        // SEC-03：持久幂等 —— 重启后仍识别重复下发，绝不自动重放副作用。
+        val existing = queue.getActionRecord(idemKey)
+        if (existing != null) {
+            when {
+                // 同会话在飞：仅重发 received（执行中的副作用不会被打断/重复）
+                inFlightActionKeys.contains(idemKey) -> {
+                    Log.i(TAG, "重复 action.request（在飞，idempotency_key=$idemKey），重发 received")
+                    receipt("received")
+                }
+                // 已有终态：重发真实终态回执（幂等，不重复执行）
+                existing.terminalState != null -> {
+                    Log.i(TAG, "重复 action.request（已终结=${existing.terminalState}），重发终态回执")
+                    sendActionReceipt(
+                        existing.actionId, existing.terminalState,
+                        executedAt = now, errorCode = existing.errorCode,
+                    )
+                }
+                // 跨重启发现「记录但未终结」：副作用结果不明 → unknown（人工核验，不重放）
+                else -> {
+                    Log.w(TAG, "跨重启发现未终结动作（idempotency_key=$idemKey），回 unknown 待人工核验")
+                    queue.setActionTerminal(idemKey, "unknown", null)
+                    sendActionReceipt(existing.actionId, "unknown", executedAt = now)
+                }
+            }
             return
         }
+        queue.recordActionIfAbsent(idemKey, actionId, capability)
+        fun failTerminal(code: String) {
+            queue.setActionTerminal(idemKey, "failed", code)
+            receipt("failed", code)
+        }
         if (expiresAt <= now) { // expires_at=0（epoch）同样视为已过期，§6 过期不补执行
-            receipt("failed", "expired")
+            failTerminal("expired")
             return
         }
         if (capability !in V1_CAPABILITIES) {
-            receipt("failed", "capability_unknown")
+            failTerminal("capability_unknown")
             return
         }
         if (capability !in acceptedCapabilities) {
-            receipt("failed", "scope_denied")
+            failTerminal("scope_denied")
             return
         }
-        seenIdempotencyKeys[idemKey] = true
-        val executor = actionExecutors[capability]
-        if (executor == null) {
-            // 无执行器：保持原行为 —— 先回 received，交 Dart 展示，终态由业务层补发（§4）。
+        val actionExecutor = actionExecutors[capability]
+        if (actionExecutor == null) {
+            // SEC-03：无原生执行器且 UI 不在 → 明确终态 unavailable（不留悬挂 accepted）；
+            // UI 在 → received 后交 Dart，终态由业务层经 sendActionReceipt 补发并落幂等表。
+            if (!listener.hasUiActionHandler()) {
+                failTerminal("unavailable")
+                return
+            }
             receipt("received")
             postMain { listener.onActionRequest(p) }
             return
         }
         // 有执行器：received 确认收到后同步执行，由执行器回终态（executed/failed）。
         receipt("received")
+        inFlightActionKeys.add(idemKey)
         val reply: (String, String?, String?) -> Unit = { state, errorCode, providerRef ->
-            val terminalAt =
-                if (state == "executed" || state == "failed") System.currentTimeMillis() else null
-            sendActionReceipt(actionId, state, executedAt = terminalAt, errorCode = errorCode,
-                providerRef = providerRef)
-            postMain { listener.onActionTerminal(actionId, capability, state, errorCode) }
+            executor.execute {
+                inFlightActionKeys.remove(idemKey)
+                if (state == "executed" || state == "failed" || state == "unknown") {
+                    queue.setActionTerminal(idemKey, state, errorCode)
+                }
+                val terminalAt =
+                    if (state == "executed" || state == "failed") System.currentTimeMillis() else null
+                sendActionReceipt(actionId, state, executedAt = terminalAt, errorCode = errorCode,
+                    providerRef = providerRef)
+                postMain { listener.onActionTerminal(actionId, capability, state, errorCode) }
+            }
         }
         try {
-            executor.execute(p, reply)
+            actionExecutor.execute(p, reply)
         } catch (t: Throwable) {
             Log.e(TAG, "action 执行器异常 capability=$capability action_id=$actionId", t)
             reply("failed", "internal", null)
