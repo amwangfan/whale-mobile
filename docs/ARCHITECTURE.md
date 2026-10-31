@@ -13,6 +13,9 @@ Whale Mobile = 鲸鱼的手机端身体与感官。whale-core = 大脑（意图�
 ┌─────────────────────────── Android 设备 ───────────────────────────┐
 │ Whale Mobile APK (com.wangfanlab.whale)                            │
 │  ┌ Flutter UI（app/）：配对/模块开关/权限向导/状态页                │
+│  │    ↑ TransportBridge 仅为 UI 客户端（BG-01；Engine 可随意重建）   │
+│  ├ runtime/  NodeRuntime（Application 单例：WSS/身份/队列/执行器）   │
+│  │           NodeService（dataSync 前台服务，常驻通知可一键停止）     │
 │  ├ ModuleRegistry：installed→permission_required→disabled/enabled │
 │  │    →starting→running→degraded/error→stopped                    │
 │  ├ transport/    WSS 客户端 · DeviceIdentity(Keystore Ed25519)     │
@@ -47,6 +50,7 @@ Whale Mobile = 鲸鱼的手机端身体与感官。whale-core = 大脑（意图�
 | D6 | 包名 com.wangfanlab.whale | 用户决策 S6；与 wangfanlab.com 域一致 |
 | D7 | 端侧能力白名单 + 双边校验 | ROADMAP 原则；不执行任意云端 Shell/Intent |
 | D8 | 原始屏幕数据默认不出设备 | 隐私基线；MCP 加固后绑回环 |
+| D9 | 运行时归 Application 单例 + dataSync FGS 载体（BG-01） | UI 销毁不断连；Android 8+ 合规启动；Android 15 dataSync 限时内不绕过 |
 | D9 | 传输拓扑：tailnet 内 ws://（WireGuard 加密）为联调态；wss://（tailscale serve 终结 TLS，真 LE 证书）为生产态 | N100 已配 `tailscale serve --https 8443 → 127.0.0.1:8765`；root 测试机不改系统 hosts（dm-verity 风险），生产非 root 机 Tailscale App 自带 MagicDNS 可解析 ts.net 域名 |
 
 ## 4. 模块责任/协议/依赖/验收（阶段一）

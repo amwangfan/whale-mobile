@@ -6,7 +6,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.util.Log
-import com.wangfanlab.whale.transport.TransportBridge
+import com.wangfanlab.whale.runtime.NodeRuntime
 import com.wangfanlab.whale.transport.WssClient
 import com.wangfanlab.whale.voip.BridgePrefs
 import com.wangfanlab.whale.voip.CallAccountHelper
@@ -35,7 +35,7 @@ class VoipModule(
     private val decider: RingDecider = RingDecider(
         moduleEnabled = { isEnabled(context.applicationContext) },
         permissionGranted = { permissionGranted(context.applicationContext) },
-        allPaused = { TransportBridge.isAllPaused(context.applicationContext) },
+        allPaused = { NodeRuntime.isAllPaused(context.applicationContext) },
         defaultBridgeHost = { BridgePrefs.getHost(context.applicationContext) },
         defaultBridgePort = { BridgePrefs.getPort(context.applicationContext) },
     ),
@@ -108,7 +108,7 @@ class VoipModule(
                 Log.i(TAG, "call.invite 忽略: ${decision.reason}")
 
             is InviteDecision.Accept -> {
-                if (!isEnabled(appContext) || TransportBridge.isAllPaused(appContext)) {
+                if (!isEnabled(appContext) || NodeRuntime.isAllPaused(appContext)) {
                     Log.w(TAG, "call.invite 到达但模块停用/全局暂停，不响铃")
                     emitRaw(
                         "call.state",

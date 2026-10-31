@@ -11,7 +11,7 @@ import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.util.Log
 import androidx.core.app.NotificationManagerCompat
-import com.wangfanlab.whale.transport.TransportBridge
+import com.wangfanlab.whale.runtime.NodeRuntime
 
 /**
  * 通知监听模块（阶段二 B3 前半：phone.notification.read，独立可选，默认关）。
@@ -36,7 +36,7 @@ class NotificationReadModule(
     private val decider: NotificationReadDecider = NotificationReadDecider(
         moduleEnabled = { isEnabled(context.applicationContext) },
         allowedApps = { allowedApps(context.applicationContext) },
-        allPaused = { TransportBridge.isAllPaused(context.applicationContext) },
+        allPaused = { NodeRuntime.isAllPaused(context.applicationContext) },
     ),
     /** App 显示名解析（PM；测试可替换）。 */
     private val labelResolver: (String) -> String = { pkg ->

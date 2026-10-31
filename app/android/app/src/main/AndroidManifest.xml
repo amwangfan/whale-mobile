@@ -20,7 +20,7 @@
     <uses-permission android:name="android.permission.DISABLE_KEYGUARD" />
     <application
         android:label="Whale"
-        android:name="${applicationName}"
+        android:name=".WhaleApp"
         android:icon="@mipmap/ic_launcher">
         <activity
             android:name=".MainActivity"
@@ -49,6 +49,16 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+
+        <!-- ==================== 节点服务（BG-01，WSS 长连前台载体） ==================== -->
+        <!-- WSS/设备身份/离线队列归 Application 级 NodeRuntime 单例持有；
+             本服务只是前台载体（可见常驻通知 + 「停止」动作可立即断开）。
+             仅由前台场景显式启动（UI connect / 用户开关），不做后台隐式拉起；
+             Android 15 dataSync 时长受限时按系统降级，不绕过。 -->
+        <service
+            android:name="com.wangfanlab.whale.runtime.NodeService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
         <!-- ==================== VoIP 模块（B4，自管 Telecom 来电） ==================== -->
         <!-- 来电入口 = WSS call.invite / action.request phone.call.ring；
