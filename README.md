@@ -39,5 +39,5 @@
 ## 许可与致谢
 
 - 本仓库 © whale-mobile 作者们。
-- 屏幕采集与检索能力基于 [ScreenMemo](https://github.com/woijfwefw/ScreenMemo)（AGPL-3.0）的授权改造，已获得原作者书面授权；授权范围文件见 `docs/licenses/`（授权书原文不入公开仓）。
+- 屏幕采集与检索能力致谢 [ScreenMemo](https://github.com/woijfwefw/ScreenMemo)（AGPL-3.0）项目。
 - VoIP 与前台监测基础设施源自 whale-io 项目。

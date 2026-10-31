@@ -38,5 +38,5 @@ Division of labor: **sense, organize, interact and execute on the phone; underst
 ## License & credits
 
 - © the whale-mobile authors.
-- Screen capture/search capability builds on [ScreenMemo](https://github.com/woijfwefw/ScreenMemo) (AGPL-3.0) with the author's written permission.
+- Screen capture/search credits go to the [ScreenMemo](https://github.com/woijfwefw/ScreenMemo) project (AGPL-3.0).
 - VoIP & foreground-monitor infrastructure originated in the whale-io project.
