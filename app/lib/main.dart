@@ -82,6 +82,10 @@ class _ModuleOverviewPageState extends State<ModuleOverviewPage> {
   // ---- 通知监听模块（B3 前半：phone.notification.read，独立可选默认关）----
   bool _notifReadEnabled = false; // whale_modules/notification_read_enabled
   bool? _notifReadBound; // SEC-02：系统是否已实际绑定监听器（与授权分开）
+
+  // ---- 影子采集模块（SM-01；默认关；与独立 ScreenMemo 采集互斥）----
+  bool _captureEnabled = false;
+  Map<String, dynamic> _captureStatus = const {};
   bool? _notifReadPermissionGranted; // null = 未知（原生侧不可用）
 
   // ---- 受控设备动作模块（B3 前半：phone.device.safe_action，默认关）----
@@ -146,6 +150,7 @@ class _ModuleOverviewPageState extends State<ModuleOverviewPage> {
       _initNotifications();
       _initVoip();
       _initNotificationRead();
+    _initCapture();
       _initSafeAction();
       _initScreenMemo();
       _initEventExport();
@@ -400,6 +405,41 @@ class _ModuleOverviewPageState extends State<ModuleOverviewPage> {
   }
 
   // ------------------------------------------- 通知监听（B3，默认关）
+
+  // ------------------------------------------- 影子采集（SM-01，默认关）
+
+  Future<void> _initCapture() async {
+    try {
+      final status = await _transport.getCaptureStatus();
+      if (!mounted) return;
+      setState(() {
+        _captureStatus = status;
+        _captureEnabled = status['enabled'] as bool? ?? false;
+      });
+    } catch (_) {/* 原生侧不可用（单元测试环境） */}
+  }
+
+  Future<void> _toggleCapture(bool value) async {
+    setState(() => _captureEnabled = value);
+    try {
+      await _transport.setCaptureEnabled(value);
+      _appendLog('影子采集模块 ${value ? '开启' : '关闭'}');
+      await _initCapture();
+    } catch (e) {
+      _appendLog('影子采集开关失败: $e');
+    }
+  }
+
+  Future<void> _openAccessibilitySettings() async {
+    try {
+      await _transport.openAccessibilitySettings();
+      _appendLog('已打开系统无障碍设置页');
+      await Future<void>.delayed(const Duration(seconds: 3));
+      await _initCapture();
+    } catch (e) {
+      _appendLog('打开无障碍设置失败: $e');
+    }
+  }
 
   Future<void> _initNotificationRead() async {
     try {
@@ -784,6 +824,7 @@ class _ModuleOverviewPageState extends State<ModuleOverviewPage> {
               _buildTransportCard(online),
               _buildNotificationCard(),
               _buildNotificationReadCard(),
+              _buildCaptureCard(),
               _buildVoipCard(),
               _buildSafeActionCard(),
               _buildScreenMemoCard(),
@@ -1010,6 +1051,59 @@ class _ModuleOverviewPageState extends State<ModuleOverviewPage> {
         if (spec.lastReceipt != null) _row('最近回执', spec.lastReceipt!),
         if (spec.lastError != null) _errorLine('最近错误: ${spec.lastError}'),
       ],
+    );
+  }
+
+  /// 影子采集模块卡（SM-01，Issue #8）：默认关 + 互斥提示 + 影子统计（无内容数据）。
+  Widget _buildCaptureCard() {
+    final granted = _captureStatus['accessibility_granted'] as bool? ?? false;
+    final conflict = _captureStatus['conflict_standalone'] as bool? ?? false;
+    final running = _captureStatus['service_running'] as bool? ?? false;
+    final stats =
+        (_captureStatus['stats'] as Map?)?.cast<String, dynamic>() ?? const {};
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 6),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.screenshot_monitor),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text('影子采集（实验）',
+                      style: TextStyle(fontWeight: FontWeight.bold)),
+                ),
+                Switch(
+                  value: _captureEnabled,
+                  onChanged: _allPaused ? null : _toggleCapture,
+                ),
+              ],
+            ),
+            const Text('SM-01 影子模式：只统计截图成功率/延迟/重复率，'
+                '不保存截图、不识别文字；与独立 ScreenMemo 采集互斥'),
+            const SizedBox(height: 8),
+            _row('无障碍权限', granted ? '已授予' : '未授予'),
+            _row('服务运行', running ? '运行中' : '未运行'),
+            if (conflict) _errorLine('检测到独立 ScreenMemo 采集中：本模块自动跳过（互斥）'),
+            if (!granted)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: OutlinedButton.icon(
+                  onPressed: _openAccessibilitySettings,
+                  icon: const Icon(Icons.settings_accessibility, size: 18),
+                  label: const Text('去授权'),
+                ),
+              ),
+            _row('统计',
+                'attempts=${stats['attempts'] ?? 0} unique=${stats['unique'] ?? 0} '
+                'dup=${stats['duplicates'] ?? 0} fail=${stats['failures'] ?? 0} '
+                'latency=${stats['last_latency_ms'] ?? 0}ms'),
+          ],
+        ),
+      ),
     );
   }
 

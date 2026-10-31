@@ -367,6 +367,20 @@ class TransportClient {
   Future<void> openNotificationListenerSettings() =>
       _methods.invokeMethod<void>('openNotificationListenerSettings');
 
+  /// SM-01 影子采集模块状态（enabled/granted/conflict/running/stats）。
+  Future<Map<String, dynamic>> getCaptureStatus() async =>
+      Map<String, dynamic>.from(await _methods
+              .invokeMethod<Map<dynamic, dynamic>>('getCaptureStatus') ??
+          <String, dynamic>{});
+
+  /// SM-01 影子采集开关（默认关；与独立 ScreenMemo 采集互斥）。
+  Future<void> setCaptureEnabled(bool enabled) => _methods
+      .invokeMethod<void>('setCaptureEnabled', <String, dynamic>{'enabled': enabled});
+
+  /// 跳系统无障碍设置页（采集服务授权入口）。
+  Future<void> openAccessibilitySettings() =>
+      _methods.invokeMethod<void>('openAccessibilitySettings');
+
   /// 读通知监听 App 白名单（whale_notif_read/allowed_apps；默认空 = 一个都不读）。
   Future<Set<String>> getNotificationReadAllowedApps() async {
     final res = await _methods
