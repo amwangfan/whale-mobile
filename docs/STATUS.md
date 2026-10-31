@@ -61,6 +61,14 @@
 ### WM-07 — Phase I 真机验收（Gate A）
 - 状态：not_started（依赖 WM-04..06；设备矩阵见 docs/ARCHITECTURE.md §5）
 
+### BG-01（Issue #2）— WSS/设备身份/离线队列脱离 Flutter Activity：NodeService
+- 状态：**device-tested**（2026-11-01，leaf5 真 core）
+- 具体完成：`WhaleApp`（Application）持有 `NodeRuntime` 进程级单例（WssClient/DeviceIdentity/OfflineQueue/通知·VoIP·safe_action 执行器唯一所有者，二次创建直接抛错）；`NodeService` 前台服务（dataSync 类型、whale_status 常驻通知 + 「停止」动作即断开）；`TransportBridge` 瘦身为 UI 客户端（Engine 销毁只注销监听/委托，不拆连接）；sensor.query 处理器链 paused→Dart 委托→fail-closed unavailable；新增 `setBgServiceEnabled`（whale_modules/bg_service_enabled，默认 true）
+- **leaf5 实测**：UI BACK 销毁 Activity 后进程存活、NodeService 前台运行、core `online:true`；无 UI 时 `phone.notification.post` → **executed**（通知栏可见）；无 UI 时 `screen.history.search` → **unavailable**（source=none，无静默 accepted）；重进 UI → 状态补发 + Dart 委托自动恢复 → `screen.history.search` ok 命中
+- 测试：JUnit 92/92（新增 runtime.SensorQueryDispatchTest/UiEventHubTest 10 例）；flutter 81/81；flutter analyze 0 issue
+- 尚未实现：Doze/重启/网络切换恢复矩阵（BG-02）；Android 15 dataSync 6h 上限的降级提示（BG-02）
+- 协议版本与兼容影响：无（contracts/v1 未动）
+
 ---
 
 ## 阶段二（B 系列，Gate A 后启动）
