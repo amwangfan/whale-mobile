@@ -1,0 +1,50 @@
+# --- Secrets & signing (never commit) ---
+*.keystore
+*.jks
+key.properties
+secrets/
+*.pem
+*.env
+.env.*
+
+# --- Android / Gradle ---
+.gradle/
+**/build/
+local.properties
+*.apk
+*.aab
+*.ap_
+.cxx/
+
+# --- Flutter / Dart ---
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+**/doc/api/
+.app/
+
+# --- IDE ---
+.idea/
+*.iml
+.vscode/
+.fvm/
+
+# --- Python (server/) ---
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+server/*.db
+server/*.db-journal
+server/*.db-wal
+server/*.db-shm
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- Captured private data (screenshots/recordings must never enter git) ---
+captures/
+*.screenrecord/
+docs/measurements/
