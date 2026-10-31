@@ -66,6 +66,42 @@ class VoipModule(
                     eventSender(event)
                 }
             }
+        // VOICE-01：媒体状态机（AudioBridge）→ call.state 事件 + 失败降级。
+        // 状态：connecting/ready(mode=omni|agent|echo)/retrying/failed/stopped。
+        com.wangfanlab.whale.voip.AudioBridge.sMediaListener =
+            object : com.wangfanlab.whale.voip.AudioBridge.MediaStateListener {
+                override fun onMediaState(state: String, mode: String, detail: String) {
+                    FileLog.i("media state=$state mode=$mode $detail")
+                    eventSender(
+                        CallEvent(
+                            kind = "call.state",
+                            privacyClass = "owner_private",
+                            summary = "media=$state mode=$mode ${detail.take(80)}".trim(),
+                        ),
+                    )
+                    if (state == "failed") {
+                        // 媒体重试耗尽：降级可见（通知）+ 主动挂断（不留死通话）
+                        Log.w(TAG, "媒体失败，挂断并通知: $detail")
+                        try {
+                            com.wangfanlab.whale.modules.notifications.NotificationModule
+                                .SystemNotifier(appContext)
+                                .post(
+                                    com.wangfanlab.whale.modules.notifications.NotificationSpec(
+                                        op = com.wangfanlab.whale.modules.notifications.NotificationOp.POST,
+                                        channelId = com.wangfanlab.whale.modules.notifications.NotificationModule.CHANNEL_CALL,
+                                        title = "语音桥不可用",
+                                        text = "通话媒体连接失败，已自动挂断（可稍后重试）",
+                                        notificationTag = "voip-media-failed",
+                                        openAppOnClick = true,
+                                    ),
+                                )
+                        } catch (t: Throwable) {
+                            Log.w(TAG, "降级通知失败", t)
+                        }
+                        com.wangfanlab.whale.voip.FakeConnectionService.hangupAll()
+                    }
+                }
+            }
     }
 
     // ------------------------------------------------------------ ActionExecutor

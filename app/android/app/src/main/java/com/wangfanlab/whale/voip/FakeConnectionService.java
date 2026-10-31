@@ -29,6 +29,12 @@ public class FakeConnectionService extends ConnectionService {
     public static volatile CallStateListener sCallStateListener;
 
     static void notifyCallState(String state, FakeConnection c, String reason) {
+        // VOICE-01：通话态前台服务随状态机进出（active→前台，ended→退出）
+        FakeConnectionService svc = sInstance;
+        if (svc != null) {
+            if ("active".equals(state)) promoteCallForeground(svc);
+            else if ("ended".equals(state)) dropCallForeground(svc);
+        }
         CallStateListener l = sCallStateListener;
         if (l == null || c == null) return;
         try {
@@ -204,6 +210,34 @@ public class FakeConnectionService extends ConnectionService {
             notifyCallState("ended", c, "local");
         }
         FileLog.i("hangupAll done");
+    }
+
+    /** VOICE-01：通话期间以 phoneCall 类型前台服务保活（API 29+ 带类型）。 */
+    private static void promoteCallForeground(FakeConnectionService svc) {
+        try {
+            android.app.Notification n = new android.app.Notification.Builder(svc, "whale_call")
+                    .setContentTitle("Whale 通话中")
+                    .setContentText("语音桥连接保持中")
+                    .setSmallIcon(com.wangfanlab.whale.R.mipmap.ic_launcher)
+                    .setOngoing(true)
+                    .build();
+            if (android.os.Build.VERSION.SDK_INT >= 29) {
+                svc.startForeground(42002, n,
+                        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL);
+            } else {
+                svc.startForeground(42002, n);
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "promoteCallForeground", t);
+        }
+    }
+
+    private static void dropCallForeground(FakeConnectionService svc) {
+        try {
+            svc.stopForeground(true);
+        } catch (Throwable t) {
+            Log.w(TAG, "dropCallForeground", t);
+        }
     }
 
     public static void answerActive() {
