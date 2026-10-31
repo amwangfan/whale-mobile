@@ -4,11 +4,15 @@ import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import android.util.Log
 
 /**
  * 上行消息离线队列（contracts/v1 §6：至少一次送达 + core 按 event_id 去重）。
  *
  * - 持久化于 SQLite（android.database.sqlite，无第三方 ORM）；
+ * - **payload 应用层加密（SEC-01）**：`payload_json` 列自 DB v2 起存放
+ *   `v1.` 前缀的 AES/GCM 密文（[QueueCipher]，生产为 Keystore 主密钥）；
+ *   metadata 只保留队列状态（event_id/type/state/时间戳），不含内容；
  * - 三态：PENDING（未送出）→ SENT（已写入 WS，待确认）→ ACKED（已确认）；
  *   协议 V1 尚无 sensor.event 的应用层 ack，SENT 表示帧已交付 TCP；连接断开重连后
  *   SENT 一律回退 PENDING 重发（重复由 core 按 event_id 幂等吸收）；
@@ -17,6 +21,9 @@ import android.database.sqlite.SQLiteOpenHelper
  *   消息并累加 dropped 计数（持久化于 queue_meta，重启不丢）；
  * - drop_on_pause：置位的事件在「功能暂停」（heartbeat status=paused）期间不补传，
  *   恢复在线前由 [purgeDropOnPause] 清除并计数（§6：暂停期间不补传私人历史）。
+ * - fail-closed：解密失败（密文损坏/主密钥失效）的条目直接丢弃并计入 dropped，
+ *   绝不上传明文或半解密内容；v1→v2 迁移在单事务内「读旧→加密→写回」，
+ *   迁移中无法加密的条目宁可删除也不留明文。
  *
  * 只存 payload 不存信封：id/ts/seq 在实际发送时生成，保证每次重发都是合法新帧，
  * 而幂等语义由 payload.event_id 承担。
@@ -25,6 +32,7 @@ class OfflineQueue(
     context: Context,
     dbName: String = DEFAULT_DB_NAME,
     private val capacity: Int = DEFAULT_CAPACITY,
+    private val cipher: QueueCipher? = null,
 ) : SQLiteOpenHelper(context, dbName, null, DB_VERSION) {
 
     enum class State(val code: Int) {
@@ -75,9 +83,59 @@ class OfflineQueue(
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) {
+            // SEC-01 v1→v2：明文 payload 事务式加密迁移。
+            // 幂等：已带 v1. 前缀的行跳过；无法加密的行删除（fail closed，不留明文）。
+            migratePlaintextToEncrypted(db)
+            return
+        }
         db.execSQL("DROP TABLE IF EXISTS uplink_queue")
         db.execSQL("DROP TABLE IF EXISTS queue_meta")
         onCreate(db)
+    }
+
+    /** v1→v2 迁移：读旧明文 → 加密 → 写回，单事务；无 cipher 或加密失败的行删除。 */
+    private fun migratePlaintextToEncrypted(db: SQLiteDatabase) {
+        val rows = mutableListOf<Pair<String, String>>()
+        db.query(
+            "uplink_queue", arrayOf("event_id", "payload_json"),
+            null, null, null, null, null,
+        ).use { c ->
+            while (c.moveToNext()) rows.add(c.getString(0) to c.getString(1))
+        }
+        var migrated = 0
+        var dropped = 0
+        db.beginTransaction()
+        try {
+            for ((eventId, payload) in rows) {
+                if (payload.startsWith(CIPHER_PREFIX)) continue // 幂等：已加密
+                val enc = try {
+                    cipher?.encrypt(payload)
+                } catch (t: Throwable) {
+                    Log.w(TAG, "迁移加密失败 event_id=$eventId，删除该条（fail closed）", t)
+                    null
+                }
+                if (enc == null) {
+                    db.delete("uplink_queue", "event_id = ?", arrayOf(eventId))
+                    dropped++
+                } else {
+                    db.update(
+                        "uplink_queue",
+                        ContentValues().apply {
+                            put("payload_json", CIPHER_PREFIX + enc)
+                            put("updated_at", System.currentTimeMillis())
+                        },
+                        "event_id = ?", arrayOf(eventId),
+                    )
+                    migrated++
+                }
+            }
+            if (dropped > 0) addDropped(db, dropped.toLong())
+            db.setTransactionSuccessful()
+            Log.i(TAG, "队列迁移 v1→v2：加密 $migrated 条，删除 $dropped 条")
+        } finally {
+            db.endTransaction()
+        }
     }
 
     /**
@@ -98,7 +156,7 @@ class OfflineQueue(
             val values = ContentValues().apply {
                 put("event_id", eventId)
                 put("type", type)
-                put("payload_json", payloadJson)
+                put("payload_json", encryptPayload(payloadJson))
                 put("state", State.PENDING.code)
                 put("drop_on_pause", if (dropOnPause) 1 else 0)
                 put("created_at", nowMs)
@@ -120,6 +178,7 @@ class OfflineQueue(
     @Synchronized
     fun pendingBatch(limit: Int = 100): List<Entry> {
         val out = ArrayList<Entry>(limit)
+        val corrupted = ArrayList<String>()
         readableDatabase.query(
             "uplink_queue",
             arrayOf("event_id", "type", "payload_json", "state", "drop_on_pause", "created_at"),
@@ -127,16 +186,38 @@ class OfflineQueue(
             null, null, "created_at ASC", limit.toString(),
         ).use { c ->
             while (c.moveToNext()) {
+                val eventId = c.getString(0)
+                val plain = try {
+                    decryptPayload(c.getString(2))
+                } catch (t: Throwable) {
+                    // fail closed：密文损坏/密钥失效 → 收集后统一丢弃，绝不送明文
+                    Log.w(TAG, "队列条目解密失败，丢弃 event_id=$eventId", t)
+                    corrupted.add(eventId)
+                    continue
+                }
                 out.add(
                     Entry(
-                        eventId = c.getString(0),
+                        eventId = eventId,
                         type = c.getString(1),
-                        payloadJson = c.getString(2),
+                        payloadJson = plain,
                         state = State.of(c.getInt(3)),
                         dropOnPause = c.getInt(4) != 0,
                         createdAt = c.getLong(5),
                     )
                 )
+            }
+        }
+        if (corrupted.isNotEmpty()) {
+            val db = writableDatabase
+            db.beginTransaction()
+            try {
+                for (id in corrupted) {
+                    db.delete("uplink_queue", "event_id = ?", arrayOf(id))
+                }
+                addDropped(db, corrupted.size.toLong())
+                db.setTransactionSuccessful()
+            } finally {
+                db.endTransaction()
             }
         }
         return out
@@ -266,9 +347,35 @@ class OfflineQueue(
         null, null, null,
     ).use { c -> if (c.moveToFirst()) c.getString(0).toLongOrNull() ?: 0L else 0L }
 
+    // ---- payload 加解密（SEC-01） ----
+
+    /** 入库前加密；无 cipher（测试/降级）时原样存储。 */
+    private fun encryptPayload(plain: String): String {
+        val c = cipher ?: return plain
+        return CIPHER_PREFIX + c.encrypt(plain)
+    }
+
+    /** 出库后解密；无 cipher 时要求明文（带前缀视为损坏）。 */
+    private fun decryptPayload(stored: String): String {
+        if (stored.startsWith(CIPHER_PREFIX)) {
+            val c = cipher ?: throw SecurityException("密文队列但无 cipher")
+            return c.decrypt(stored.removePrefix(CIPHER_PREFIX))
+        }
+        // 兼容窗口：迁移前入队的明文行（v1 遗留）只读不加密写回；
+        // 正常路径（cipher 非空且迁移已跑）不会命中。
+        if (cipher != null) throw SecurityException("明文 payload 出现在加密队列")
+        return stored
+    }
+
     companion object {
-        private const val DB_VERSION = 1
+        private const val TAG = "WhaleOfflineQueue"
+
+        /** DB v2：payload_json 列存 `v1.` 前缀密文（SEC-01）。 */
+        private const val DB_VERSION = 2
         private const val META_DROPPED = "dropped_count"
+
+        /** 密文格式版本前缀（格式演进时递增并写迁移）。 */
+        const val CIPHER_PREFIX = "v1."
         const val DEFAULT_DB_NAME = "whale_transport.db"
         const val DEFAULT_CAPACITY = 1000
     }

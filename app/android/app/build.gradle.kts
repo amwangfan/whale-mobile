@@ -81,6 +81,9 @@ dependencies {
     // （Flutter embedding 本就传递依赖；显式声明以锁定编译期 API）
     implementation("androidx.core:core:1.13.1")
     testImplementation("junit:junit:4.13.2")
+    // SEC-01：队列加密迁移的本地仪器级测试（SQLite/Context 由 Robolectric 提供）
+    testImplementation("org.robolectric:robolectric:4.13")
+    testImplementation("androidx.test:core:1.6.1")
 }
 
 flutter {

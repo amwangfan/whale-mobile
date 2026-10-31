@@ -78,6 +78,14 @@
 - 测试：JUnit 97/97（新增 RecoveryPolicyTest 5 例）；flutter 81/81；analyze 0
 - 协议版本与兼容影响：无
 
+### SEC-01（Issue #4）— OfflineQueue 敏感 payload 加密、版本迁移及撤销后清理
+- 状态：**device-tested**（2026-11-01，nova 真 core）
+- 具体完成：`QueueCipher` 接口 + `IdentityQueueCipher`（复用身份 Keystore AES-256/GCM 主密钥，材料不出 Keystore）；`payload_json` 列自 DB v2 起存 `v1.` 前缀密文；v1→v2 单事务迁移（读旧明文→加密→写回；幂等跳过已加密；加密失败删除不留明文）；出库解密失败 fail-closed 丢弃并计入 dropped（绝不上传明文/半解密）；无 cipher 打开加密库即拒绝读出
+- **nova 实测**：升级安装后 ring 动作 executed 触发真实事件流 → 队列 12 条全部 `v1.` 密文、0 明文行、PRAGMA user_version=2、事件正常 SENT→ACKED（解密 flush 无回归）
+- 测试：JUnit 109/109（新增 OfflineQueueEncryptionTest 6 例，Robolectric 真实 SQLite：迁移/幂等/密文落库/损坏 fail-closed/无 cipher 删除明文/容量幂等不变）
+- 撤销后清理：device_revoked 时 queue.clear() 原有语义不变（密文行一并清空）；卸载由系统擦除
+- 协议版本与兼容影响：无
+
 ---
 
 ## 阶段二（B 系列，Gate A 后启动）
