@@ -123,6 +123,10 @@ class WssClient(
     private var hadOnlineThisSession = false
     private var upSeq = SeqCounter()
     private var downSeq = SeqCounter()
+    /** 最近一次掉线原因（诊断；仅 executor 线程写，@Volatile 跨线程读）。 */
+    @Volatile
+    private var lastDisconnectReason: String? = null
+
     @Volatile
     private var sessionId: String? = null
     @Volatile
@@ -182,6 +186,22 @@ class WssClient(
     }
 
     /**
+     * 立即重连（BG-02 网络恢复回调用）：重置退避并立刻建连。
+     * 仅在非主动断开、非销毁、当前不在线时生效。
+     */
+    fun reconnectNow() {
+        executor.execute {
+            if (destroyed || voluntaryClose) return@execute
+            if (state == State.ONLINE || state == State.AWAITING_AUTH) return@execute
+            if (url == null) return@execute
+            Log.i(TAG, "网络恢复，立即重连（重置退避）")
+            backoff.reset()
+            cancelReconnect()
+            openSocket()
+        }
+    }
+
+    /**
      * 上行 sensor.event：先入队（幂等），在线则立即尝试发送。
      * @return event_id（幂等键）
      */
@@ -203,12 +223,19 @@ class WssClient(
         payload["summary"] = summary
         evidenceRef?.let { payload["evidence_ref"] = it }
         payload["schema_version"] = schemaVersion
+        // BG-02 毒丸防护：契约要求 event_id ≥ 16 字符；过短 id 换发新幂等键，
+        // 避免必然被服务端拒绝的条目进入队列。
+        val effectiveEventId = if (eventId.length >= MIN_EVENT_ID_LEN) eventId else {
+            Log.w(TAG, "event_id 长度过短（${eventId.length} < $MIN_EVENT_ID_LEN），换发新幂等键: $eventId")
+            Ids.newEventId()
+        }
+        payload["event_id"] = effectiveEventId
         val payloadJson = EnvelopeCodec.payloadToJson(payload)
         executor.execute {
-            queue.enqueue(eventId, TYPE_SENSOR_EVENT, payloadJson, dropOnPause)
+            queue.enqueue(effectiveEventId, TYPE_SENSOR_EVENT, payloadJson, dropOnPause)
             if (state == State.ONLINE) flushQueueLocked()
         }
-        return eventId
+        return effectiveEventId
     }
 
     /** 上行 action.receipt（尽力发送，不入队；core 侧等待自带超时）。 */
@@ -242,6 +269,7 @@ class WssClient(
             "session_id" to sessionId,
             "heartbeat_interval" to heartbeatIntervalSec,
             "reconnect_attempts" to backoff.attempts,
+            "last_disconnect_reason" to lastDisconnectReason,
             "queue_pending" to s.pending,
             "queue_sent" to s.sent,
             "queue_acked" to s.acked,
@@ -295,6 +323,7 @@ class WssClient(
 
     private fun handleTransportLostLocked(why: String) {
         if (destroyed) return
+        lastDisconnectReason = why
         stopHeartbeat()
         ws = null
         if (voluntaryClose) {
@@ -567,6 +596,15 @@ class WssClient(
             if (batch.isEmpty()) return
             var sentAny = false
             for (entry in batch) {
+                // BG-02 毒丸防护：event_id 不满足契约（minLength 16）的条目必然被
+                // 服务端 schema 拒绝且永不 ACK，会随重连无限重发——入队/ flush 双侧
+                // 拦截，按「已终结」处理（markSent+markAcked）并记日志。
+                if (entry.eventId.length < MIN_EVENT_ID_LEN) {
+                    Log.w(TAG, "队列条目 event_id 不满足契约（长度 ${entry.eventId.length} < $MIN_EVENT_ID_LEN），丢弃: ${entry.eventId}")
+                    queue.markSent(entry.eventId)
+                    queue.markAcked(entry.eventId)
+                    continue
+                }
                 val payload = try {
                     EnvelopeCodec.payloadFromJson(entry.payloadJson)
                 } catch (e: Exception) {
@@ -637,6 +675,9 @@ class WssClient(
         private const val TAG = "WhaleWssClient"
         const val DEFAULT_HEARTBEAT_INTERVAL_SEC = 30
         private const val QUEUE_FLUSH_BATCH = 100
+
+        /** contracts/v1 sensor.event event_id 最小长度（毒丸防护阈值）。 */
+        private const val MIN_EVENT_ID_LEN = 16
 
         const val TYPE_AUTH_CHALLENGE = "auth.challenge"
         const val TYPE_DEVICE_HELLO = "device.hello"

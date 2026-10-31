@@ -131,7 +131,70 @@ class NodeRuntime private constructor(
         // 模块成员为构造期初始化的 val：voip/notificationRead 的系统钩子
         // （FakeConnectionService.CallStateListener / NotificationListenerService
         // 静态钩子）在 NodeRuntime 创建时即注册，UI 未启动时事件也能入队。
+        registerNetworkCallback()
         Log.i(TAG, "NodeRuntime 已启动 device_id=${identity.getDeviceId()}")
+    }
+
+    /**
+     * 连接恢复（BG-02）：进程新建（开机广播/服务拉起/更新后启动）时按
+     * [RecoveryPolicy] 决策是否重连。尊重一键暂停与设备撤销；前台服务
+     * 能否拉起由系统决定（NodeService.start 内部降级，不绕过）。
+     * @param why 触发来源（boot/service_restart/process_start），仅日志用
+     * @return true=已发起重连
+     */
+    @Synchronized
+    fun recoverIfNeeded(why: String): Boolean {
+        val prefs = appContext.getSharedPreferences(NODE_PREFS_NAME, Context.MODE_PRIVATE)
+        val wasConnected = prefs.getBoolean(KEY_WAS_CONNECTED, false)
+        val revoked = prefs.getBoolean(KEY_REVOKED, false)
+        val paused = isAllPaused(appContext)
+        if (!RecoveryPolicy.shouldRecover(wasConnected, paused, revoked)) {
+            Log.i(TAG, "恢复评估[$why]：不恢复（wasConnected=$wasConnected paused=$paused revoked=$revoked）")
+            return false
+        }
+        val url = prefs.getString(KEY_GATEWAY_URL, null)
+        if (url.isNullOrBlank()) {
+            Log.w(TAG, "恢复评估[$why]：缺少已存网关地址，放弃")
+            return false
+        }
+        val caps = prefs.getString(KEY_GATEWAY_CAPS, null)
+            ?.split(",")?.filter { it.isNotBlank() }
+            ?: WssClient.V1_CAPABILITIES.toList()
+        Log.i(TAG, "恢复评估[$why]：发起重连 url=$url")
+        if (com.wangfanlab.whale.transport.TransportBridge.isBgServiceEnabled(appContext)) {
+            NodeService.start(appContext)
+        }
+        connect(url, caps, detectAppVersion())
+        return true
+    }
+
+    // ---- 网络恢复回调（BG-02）：默认网络可用时立即重连（重置退避） ----
+
+    @Volatile
+    private var networkAvailable: Boolean = true
+
+    private var networkCallbackRegistered = false
+
+    private fun registerNetworkCallback() {
+        if (networkCallbackRegistered) return
+        try {
+            val cm = appContext.getSystemService(Context.CONNECTIVITY_SERVICE)
+                as? android.net.ConnectivityManager ?: return
+            networkAvailable = cm.activeNetwork != null
+            cm.registerDefaultNetworkCallback(object : android.net.ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: android.net.Network) {
+                    networkAvailable = true
+                    client.reconnectNow()
+                }
+
+                override fun onLost(network: android.net.Network) {
+                    networkAvailable = cm.activeNetwork != null
+                }
+            })
+            networkCallbackRegistered = true
+        } catch (t: Throwable) {
+            Log.w(TAG, "网络回调注册失败（降级为纯心跳看门狗）: ${t.message}")
+        }
     }
 
     /**
@@ -157,10 +220,21 @@ class NodeRuntime private constructor(
             shutdown = false
             client = newClient()
         }
+        // 持久化恢复上下文（BG-02）：重启/进程重建后可按策略恢复。
+        appContext.getSharedPreferences(NODE_PREFS_NAME, Context.MODE_PRIVATE).edit()
+            .putBoolean(KEY_WAS_CONNECTED, true)
+            .putBoolean(KEY_REVOKED, false)
+            .putString(KEY_GATEWAY_URL, url)
+            .putString(KEY_GATEWAY_CAPS, capabilities.joinToString(","))
+            .apply()
         client.connect(url, capabilities, appVersion)
     }
 
     fun disconnect() {
+        // 用户主动断开：清除恢复标志，重启/开机不再自动重连。
+        appContext.getSharedPreferences(NODE_PREFS_NAME, Context.MODE_PRIVATE).edit()
+            .putBoolean(KEY_WAS_CONNECTED, false)
+            .apply()
         client.disconnect()
     }
 
@@ -176,7 +250,26 @@ class NodeRuntime private constructor(
         val info = LinkedHashMap<String, Any?>(client.getStateInfo())
         info["runtime_started"] = started
         info["node_service_running"] = NodeService.isRunning
+        // BG-02 诊断：网络可用性、电池优化白名单状态、恢复上下文（均脱敏）。
+        info["network_available"] = networkAvailable
+        val prefs = appContext.getSharedPreferences(NODE_PREFS_NAME, Context.MODE_PRIVATE)
+        info["was_connected"] = prefs.getBoolean(KEY_WAS_CONNECTED, false)
+        info["battery_opt_ignored"] = isBatteryOptimizationIgnored()
         return info
+    }
+
+    /** 电池优化白名单状态（仅观测展示，不申请、不绕过）。 */
+    private fun isBatteryOptimizationIgnored(): Boolean = try {
+        val pm = appContext.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+        pm?.isIgnoringBatteryOptimizations(appContext.packageName) == true
+    } catch (t: Throwable) {
+        false
+    }
+
+    private fun detectAppVersion(): String = try {
+        appContext.packageManager.getPackageInfo(appContext.packageName, 0).versionName ?: "unknown"
+    } catch (e: Exception) {
+        "unknown"
     }
 
     // ------------------------------------------------------------- 上行 API（代理到唯一 client）
@@ -321,6 +414,13 @@ class NodeRuntime private constructor(
     }
 
     override fun onProtocolError(code: String, message: String, refId: String) {
+        // 撤销/认证失败为终态：标记 revoked，清除恢复上下文（BG-02 不擅自重连）。
+        if (code == "device_revoked" || code == "auth_failed") {
+            appContext.getSharedPreferences(NODE_PREFS_NAME, Context.MODE_PRIVATE).edit()
+                .putBoolean(KEY_REVOKED, code == "device_revoked")
+                .putBoolean(KEY_WAS_CONNECTED, false)
+                .apply()
+        }
         emitEvent(
             mapOf(
                 "kind" to "error",
@@ -334,6 +434,20 @@ class NodeRuntime private constructor(
     companion object {
         private const val TAG = "WhaleNodeRuntime"
         private const val MCP_RESULT_SOURCE = "screenmemo.local"
+
+        /** 节点恢复上下文（BG-02）：重连所需的最小持久化状态。 */
+        private const val NODE_PREFS_NAME = "whale_node"
+        private const val KEY_WAS_CONNECTED = "was_connected"
+        private const val KEY_GATEWAY_URL = "gateway_url"
+        private const val KEY_GATEWAY_CAPS = "gateway_caps"
+        private const val KEY_REVOKED = "revoked"
+
+        /** 配对/重配对成功后调用：清除撤销标记。 */
+        fun clearRevoked(context: Context) {
+            context.applicationContext
+                .getSharedPreferences(NODE_PREFS_NAME, Context.MODE_PRIVATE)
+                .edit().putBoolean(KEY_REVOKED, false).apply()
+        }
 
         private val created = AtomicBoolean(false)
 

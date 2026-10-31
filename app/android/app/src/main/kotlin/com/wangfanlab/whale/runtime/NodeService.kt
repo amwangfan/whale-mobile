@@ -52,6 +52,11 @@ class NodeService : Service() {
             }
             else -> {
                 promoteForeground()
+                // START_STICKY 重建（intent=null）：进程被杀后系统拉起服务时
+                // 按策略恢复连接（BG-02；尊重暂停/断开/撤销）。
+                if (intent == null) {
+                    NodeRuntime.peek()?.recoverIfNeeded("service_restart")
+                }
                 return START_STICKY
             }
         }
