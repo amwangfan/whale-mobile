@@ -374,6 +374,25 @@ class NodeRuntime private constructor(
         event["kind"] = "state"
         event["state"] = WssClient.stateName(state)
         emitEvent(event)
+        writeStateSnapshot(state)
+    }
+
+    /** 调试/运维（OEM 无 logcat 时）：状态快照落私有文件（无敏感字段）。 */
+    private fun writeStateSnapshot(state: WssClient.State) {
+        try {
+            val dbg = (appContext.applicationInfo.flags and
+                    android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+            if (!dbg) return
+            val info = getStateInfo().toMutableMap()
+            info["state"] = WssClient.stateName(state)
+            info["ts"] = System.currentTimeMillis()
+            val json = info.entries.joinToString(",", prefix = "{", postfix = "}") { (k, v) ->
+                val key = "\"" + k + "\""
+                if (v is String) key + ":\"" + v + "\"" else "$key:$v"
+            }
+            java.io.File(appContext.filesDir, "node_state.json").writeText(json)
+        } catch (_: Throwable) {
+        }
     }
 
     override fun onActionRequest(payload: Map<String, Any?>) {

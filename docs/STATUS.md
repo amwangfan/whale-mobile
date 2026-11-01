@@ -58,8 +58,12 @@
 - 尚未实现：Host 模块状态机完整 UI（A1 项，当前为最小测试页）、通知点击事件上行
 - 下一依赖任务：WM-07 Gate A
 
-### WM-07 — Phase I 真机验收（Gate A）
-- 状态：not_started（依赖 WM-04..06；设备矩阵见 docs/ARCHITECTURE.md §5）
+### WM-07 / GA-01（Issue #7）— Gate A 收口
+- 状态：**in_progress**（2026-11-01 Magic8 Pro 已入网完成主矩阵；待 leaf5 24h 耗电基线读完即收口）
+- **Magic8 Pro（BKQ-AN10，生产非 Root）实测**：配对/审批/上线 ✓；通知 post executed ✓；通知监听全链（授权+系统绑定+白名单事件入 core，leaf5/nova 的固件不绑定问题在正式机不存在）✓；safe_action launch_app executed（unverified_no_usage_access 诚实标注）/https 深链 executed/微信与设置 scope_denied ✓；VoIP ring→answer→media ready(omni)→stopped ✓（经 N100 中继绕 tailnet ACL）；影子采集 attempts/unique/dup 统计 + IME 拦截 7 次真实触发 ✓；**关屏待机在线（应用启动管理白名单后）+ 整机重启自动恢复在线（无人工介入）** ✓
+- **关键运维结论（MagicOS/类 OEM）**：仅 FGS + deviceidle 白名单不够——必须「应用启动管理」手动三项全开，否则系统 CPU 冻结进程致 socket 死亡（state 文件与 core 双侧证据）；已写入部署 SOP
+- 调试通道：OEM 无 logcat 固件经 filesDir 快照文件观测（node_state.json / notifread_debug.log / capture_stats.json，仅 debug 包）
+- 待：leaf5 24h 耗电读数（采集中）；Doze 深睡矩阵按 MagicOS 白名单前提记录
 
 ### BG-01（Issue #2）— WSS/设备身份/离线队列脱离 Flutter Activity：NodeService
 - 状态：**device-tested**（2026-11-01，leaf5 真 core）
