@@ -59,7 +59,7 @@
 - 下一依赖任务：WM-07 Gate A
 
 ### WM-07 / GA-01（Issue #7）— Gate A 收口
-- 状态：**in_progress**（2026-11-01 Magic8 Pro 已入网完成主矩阵；待 leaf5 24h 耗电基线读完即收口）
+- 状态：**closed**（用户 2026-11-01 决定：24h 耗电暂缓，以现有证据收口）（2026-11-01 Magic8 Pro 已入网完成主矩阵；待 leaf5 24h 耗电基线读完即收口）
 - **Magic8 Pro（BKQ-AN10，生产非 Root）实测**：配对/审批/上线 ✓；通知 post executed ✓；通知监听全链（授权+系统绑定+白名单事件入 core，leaf5/nova 的固件不绑定问题在正式机不存在）✓；safe_action launch_app executed（unverified_no_usage_access 诚实标注）/https 深链 executed/微信与设置 scope_denied ✓；VoIP ring→answer→media ready(omni)→stopped ✓（经 N100 中继绕 tailnet ACL）；影子采集 attempts/unique/dup 统计 + IME 拦截 7 次真实触发 ✓；**关屏待机在线（应用启动管理白名单后）+ 整机重启自动恢复在线（无人工介入）** ✓
 - **关键运维结论（MagicOS/类 OEM）**：仅 FGS + deviceidle 白名单不够——必须「应用启动管理」手动三项全开，否则系统 CPU 冻结进程致 socket 死亡（state 文件与 core 双侧证据）；已写入部署 SOP
 - 调试通道：OEM 无 logcat 固件经 filesDir 快照文件观测（node_state.json / notifread_debug.log / capture_stats.json，仅 debug 包）
@@ -171,6 +171,9 @@
 - **nova 实测（真 core）**：同意 → grant 签发（proof_method=device，max_uses=1）；拒绝 → 409 user_denied；不操作超时 → 409 expired（端侧到期自动按拒绝回执）
 - 纪律复核：已配对≠已确认（每挑战独立 nonce 一次核销）；群聊来源只展示不提权；撤销设备后网关拒绝所有帧
 - 协议版本与兼容影响：contracts/v1 minor（新消息类型，两端同步）
+
+### RELEASE-01（Issue #16）— Gate B/C 收口
+- 状态：**closed**（2026-11-01；验收记录 docs/RELEASE-GATE-BC.md；眼镜实物/24h 耗电为用户暂缓项）
 
 ---
 
