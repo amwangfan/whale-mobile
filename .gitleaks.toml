@@ -1,0 +1,7 @@
+# 秘钥扫描配置：黄金示例与测试夹具中的演示值不是秘密
+[allowlist]
+description = "contract examples / test fixtures"
+paths = [
+  '''contracts/v1/examples/''',
+  '''app/android/app/src/test/''',
+]
