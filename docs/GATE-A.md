@@ -23,6 +23,21 @@
 
 **Gate A 判定：主要闭环在真实设备可重复完成；安全回归通过；通知可送达。待 24h 耗电数据补齐后正式关门。**
 
+## 验收结果追加（2026-11-01，Magic8 Pro BKQ-AN10 生产非 Root，真 core dev）
+
+| 项 | 结果 | 证据 |
+| --- | --- | --- |
+| 配对/审批/Ed25519 上线 | ✅ | devices online:true（label=magic8-pro） |
+| 通知 post | ✅ | executed |
+| 通知监听全链 | ✅ | 授权+系统绑定+白名单事件入 core（leaf5/nova 固件不绑定问题在正式机不存在） |
+| safe_action 矩阵 | ✅ | launch_app executed（unverified_no_usage_access 诚实标注）；https 深链 executed；微信/设置 scope_denied |
+| VoIP（Telecom+PCM） | ✅ | ring→answer→media ready(mode=omni)→stopped（经 N100 中继绕 tailnet ACL） |
+| 影子采集 | ✅ | attempts/unique/dup 统计累积；IME 拦截真实触发 |
+| 关屏待机在线 | ✅ | 前提：应用启动管理手动三项全开（否则 CPU 冻结断连——见 SOP） |
+| 整机重启自动恢复 | ✅ | 开机无人工介入自动上线（BootReceiver→FGS） |
+
+**MagicOS/类 OEM 后台运维结论**：仅 FGS + deviceidle 白名单不够，必须「应用启动管理」手动三项全开。
+
 ## 0. 前置
 
 - [ ] leaf5：Whale（最新 debug 包）+ 加固版 ScreenMemo 运行中；截屏开启；MCP 回环模式
