@@ -126,6 +126,20 @@ class ShadowCaptureService : AccessibilityService() {
                 "WhaleCapture",
                 "影子统计 ${CaptureStats.snapshot()}",
             )
+            // OEM 无 logcat 固件（如 MagicOS）观测通道：仅 debug 包落私有文件
+            try {
+                val dbg = (applicationInfo.flags and
+                        android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+                if (dbg) {
+                    val st = CaptureStats.snapshot()
+                    val json = st.entries.joinToString(",", "{", "}") { (k, v) ->
+                        val key = "\"" + k + "\""
+                        if (v is String) key + ":\"" + v + "\"" else "$key:$v"
+                    }
+                    java.io.File(filesDir, "capture_stats.json").writeText(json)
+                }
+            } catch (_: Throwable) {
+            }
         }
     }
 
