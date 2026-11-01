@@ -160,6 +160,13 @@
 - 测试：既有 VoipLogic/NotificationLogic 单测全过（148/148）；nova 双向实测
 - 协议版本与兼容影响：无（call.state summary 文本扩展，字段不变）
 
+### AUTH-01（Issue #15）— 手机可信确认：一次性授权、审批回执与撤销
+- 状态：**device-tested**（2026-11-01，nova 真 core 三路径）
+- 具体完成：contracts/v1 minor（device.confirm.request/response 两消息类型 + schema + 黄金示例，校验 20/20）；`AuthConfirmModule`（结构/有效期/设备绑定校验；过期即拒；whale_confirm 高优通知 + ConfirmActivity 锁屏全屏确认；同意→Ed25519 签名 challenge_id → 回执；拒绝/超时 approved=false+reason；绝不默认批准）；WssClient 新增类型分发与 sendConfirmResponse；whale-core-dev 配套（2abdcee：gateway send_confirm_request/响应分发 + POST /devices/{id}/confirm 创建挑战→签名核验→原子核销签发租约；核心1681 测试全过）
+- **nova 实测（真 core）**：同意 → grant 签发（proof_method=device，max_uses=1）；拒绝 → 409 user_denied；不操作超时 → 409 expired（端侧到期自动按拒绝回执）
+- 纪律复核：已配对≠已确认（每挑战独立 nonce 一次核销）；群聊来源只展示不提权；撤销设备后网关拒绝所有帧
+- 协议版本与兼容影响：contracts/v1 minor（新消息类型，两端同步）
+
 ---
 
 ## 阶段二（B 系列，Gate A 后启动）
