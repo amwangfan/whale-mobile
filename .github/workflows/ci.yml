@@ -35,6 +35,9 @@ jobs:
       - name: Dart tests
         working-directory: app
         run: flutter test
+      - name: Kotlin unit tests (JUnit + Robolectric)
+        working-directory: app/android
+        run: ./gradlew :app:testDebugUnitTest
 
   secret-scan:
     runs-on: ubuntu-latest
@@ -42,5 +45,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Gitleaks
-        uses: gitleaks/gitleaks-action@v2
+      # gitleaks-action 需要许可证密钥；改用官方 CLI（无需密钥，规则相同）
+      - name: Secret scan (gitleaks CLI)
+        run: |
+          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.24.3/gitleaks_8.24.3_linux_x64.tar.gz | tar xz gitleaks
+          ./gitleaks git --redact --exit-code 1 .
