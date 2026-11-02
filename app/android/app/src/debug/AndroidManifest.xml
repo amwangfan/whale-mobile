@@ -1,0 +1,10 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- The INTERNET permission is required for development. Specifically,
+         the Flutter tool needs it to communicate with the running application
+         to allow setting breakpoints, to provide hot reload, etc.
+    -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- 调试构建允许明文 ws:// 以便经 Tailscale 直连 dev-gateway 联调；
+         release 构建走 wss://（TLS 由 tailscale serve/反代终结），main manifest 不含此开关。 -->
+    <application android:usesCleartextTraffic="true"/>
+</manifest>

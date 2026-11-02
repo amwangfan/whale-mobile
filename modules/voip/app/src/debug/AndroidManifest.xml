@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug builds only: allow cleartext HTTP so the dev signaling endpoint
+     (e.g. adb reverse → http://127.0.0.1:18799) keeps working while
+     release stays on the platform default (cleartext denied). -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:usesCleartextTraffic="true" />
+</manifest>

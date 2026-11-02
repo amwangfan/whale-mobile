@@ -1,0 +1,128 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 端云通信必需（所有构建类型） -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 通知模块（phone.notification.post）：Android 13+ 运行时权限 -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- VoIP 模块（phone.call.ring，B4）：自管 Telecom 来电 + PCM 音频桥。
+         MANAGE_OWN_CALLS 为 normal 级（声明即授予）；RECORD_AUDIO/READ_PHONE_STATE
+         为运行时权限（接听 PCM 桥采音需 RECORD_AUDIO）。 -->
+    <uses-permission android:name="android.permission.MANAGE_OWN_CALLS" />
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <!-- API 34+：phoneCall 类型前台服务（Telecom 通话）；dataSync 供 legacy SignalService -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.DISABLE_KEYGUARD" />
+    <application
+        android:label="Whale"
+        android:name="${applicationName}"
+        android:icon="@mipmap/ic_launcher">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:taskAffinity=""
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize">
+            <!-- Specifies an Android theme to apply to this Activity as soon as
+                 the Android process has started. This theme is visible to the user
+                 while the Flutter UI initializes. After that, this theme continues
+                 to determine the Window background behind the Flutter UI. -->
+            <meta-data
+              android:name="io.flutter.embedding.android.NormalTheme"
+              android:resource="@style/NormalTheme"
+              />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+        <!-- Don't delete the meta-data below.
+             This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2" />
+
+        <!-- ==================== VoIP 模块（B4，自管 Telecom 来电） ==================== -->
+        <!-- 来电入口 = WSS call.invite / action.request phone.call.ring；
+             BootstrapActivity（设置 UI）与 RingReceiver（广播触发）不并入宿主。 -->
+        <activity
+            android:name="com.wangfanlab.whale.voip.IncomingCallActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:launchMode="singleInstance"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar.Fullscreen"
+            android:screenOrientation="portrait" />
+
+        <activity
+            android:name="com.wangfanlab.whale.voip.InCallActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleInstance"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar.Fullscreen"
+            android:screenOrientation="portrait" />
+
+        <service
+            android:name="com.wangfanlab.whale.voip.FakeConnectionService"
+            android:exported="true"
+            android:permission="android.permission.BIND_TELECOM_CONNECTION_SERVICE">
+            <intent-filter>
+                <action android:name="android.telecom.ConnectionService" />
+            </intent-filter>
+        </service>
+
+        <!-- legacy 信令长轮询（默认不启用，SignalPrefs.isEnabled 宿主默认 false；
+             保留代码供调试，无 BootReceiver——宿主开机不自动恢复长轮询） -->
+        <service
+            android:name="com.wangfanlab.whale.voip.SignalService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <!-- ==================== 通知监听模块（B3 前半，phone.notification.read） ==================== -->
+        <!-- 独立可选模块（whale_modules/notification_read_enabled 默认 false）；
+             特殊访问权限未授予时系统不绑定本服务，天然 fail-closed。
+             脱敏纪律：仅取 package/postedTime/category/标题（≤80 字符），绝不读正文。 -->
+        <service
+            android:name="com.wangfanlab.whale.modules.notificationread.WhaleNotificationListenerService"
+            android:label="@string/whale_notification_listener_label"
+            android:description="@string/whale_notification_listener_description"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+    </application>
+    <!-- Required to query activities that can process text, see:
+         https://developer.android.com/training/package-visibility and
+         https://developer.android.com/reference/android/content/Intent#ACTION_PROCESS_TEXT.
+
+         In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.PROCESS_TEXT"/>
+            <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- safe_action open_deeplink：http(s) 处理器可见性（resolveActivity 校验用；
+             带 LAUNCHER 入口的 App 系统默认可见，launch_app 无需额外声明） -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="http" />
+        </intent>
+    </queries>
+</manifest>
