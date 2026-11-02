@@ -39,14 +39,14 @@ class SafeActionModule(
     /** WssClient executor 线程调用；同步执行，经 reply 回终态（executed/failed）。 */
     override fun execute(
         payload: Map<String, Any?>,
-        reply: (state: String, errorCode: String?, providerRef: String?) -> Unit,
+        reply: (state: String, errorCode: String?, providerRef: String?, result: Map<String, Any?>?) -> Unit,
     ) {
         @Suppress("UNCHECKED_CAST")
         val args = payload["args"] as? Map<String, Any?>
         when (val decision = decider.onRequest(args)) {
             is SafeActionDecision.Reject -> {
                 Log.w(TAG, "safe_action 校验未通过: ${decision.errorCode}")
-                reply("failed", decision.errorCode, null)
+                reply("failed", decision.errorCode, null, null)
             }
 
             is SafeActionDecision.Execute -> try {
@@ -57,22 +57,22 @@ class SafeActionModule(
                     val pkg = decision.spec.packageName!!
                     when (verifyForeground(context, pkg, launchStartMs)) {
                         ForegroundVerdict.VERIFIED ->
-                            reply("executed", null, "foreground_verified")
+                            reply("executed", null, "foreground_verified", null)
                         ForegroundVerdict.BLOCKED ->
-                            reply("failed", "background_restricted", null)
+                            reply("failed", "background_restricted", null, null)
                         ForegroundVerdict.UNVERIFIABLE ->
-                            reply("executed", null, "unverified_no_usage_access")
+                            reply("executed", null, "unverified_no_usage_access", null)
                     }
                 } else {
-                    reply("executed", null, null)
+                    reply("executed", null, null, null)
                 }
             } catch (e: android.content.ActivityNotFoundException) {
                 // 目标可被校验但运行时无处理器（浏览器被禁用/竞态卸载）→ 精确回执
                 Log.w(TAG, "safe_action 无可用处理器", e)
-                reply("failed", "unavailable", null)
+                reply("failed", "unavailable", null, null)
             } catch (t: Throwable) {
                 Log.e(TAG, "safe_action 执行异常", t)
-                reply("failed", "internal", null)
+                reply("failed", "internal", null, null)
             }
         }
     }

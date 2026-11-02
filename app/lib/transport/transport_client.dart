@@ -133,6 +133,10 @@ class TransportClient {
     'glasses.card.show',
     'glasses.card.update',
     'glasses.card.dismiss',
+    // core#58：设备自主体（Root 手机 UI 控制/观察/Shell）
+    'device.agent.control',
+    'device.agent.observe',
+    'device.agent.shell',
   ];
 
   Stream<Map<String, dynamic>>? _rawEvents;

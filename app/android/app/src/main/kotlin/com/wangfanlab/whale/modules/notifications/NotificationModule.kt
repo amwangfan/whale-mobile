@@ -43,14 +43,14 @@ class NotificationModule(
     /** WssClient executor 线程调用；同步执行，经 reply 回终态（executed/failed）。 */
     override fun execute(
         payload: Map<String, Any?>,
-        reply: (state: String, errorCode: String?, providerRef: String?) -> Unit,
+        reply: (state: String, errorCode: String?, providerRef: String?, result: Map<String, Any?>?) -> Unit,
     ) {
         @Suppress("UNCHECKED_CAST")
         val args = payload["args"] as? Map<String, Any?>
         when (val decision = decider.onRequest(args)) {
             is NotificationDecision.Reject -> {
                 Log.w(TAG, "action 校验未通过: ${decision.errorCode}")
-                reply("failed", decision.errorCode, null)
+                reply("failed", decision.errorCode, null, null)
             }
 
             is NotificationDecision.Execute -> try {
@@ -61,10 +61,10 @@ class NotificationModule(
                 if (corr != null) {
                     Log.i(TAG, "通知已执行 correlation=$corr")
                 }
-                reply("executed", null, corr?.let { "corr:$it" })
+                reply("executed", null, corr?.let { "corr:$it" }, null)
             } catch (t: Throwable) {
                 Log.e(TAG, "通知执行异常", t)
-                reply("failed", "internal", null)
+                reply("failed", "internal", null, null)
             }
         }
     }

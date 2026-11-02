@@ -48,7 +48,7 @@ class GlassesModule(
 
     override fun execute(
         payload: Map<String, Any?>,
-        reply: (state: String, errorCode: String?, providerRef: String?) -> Unit,
+        reply: (state: String, errorCode: String?, providerRef: String?, result: Map<String, Any?>?) -> Unit,
     ) {
         val capability = payload["capability"] as? String ?: ""
         @Suppress("UNCHECKED_CAST")
@@ -72,7 +72,7 @@ class GlassesModule(
             }
             when (decision) {
                 is GlassesLogic.Decision.Reject ->
-                    reply("failed", decision.errorCode, null)
+                    reply("failed", decision.errorCode, null, null)
                 is GlassesLogic.Decision.Show -> handleShow(decision.card, reply)
             }
             return
@@ -81,7 +81,7 @@ class GlassesModule(
         // update / dismiss
         val cardId = (args["card_id"] as? String)?.trim()
         if (cardId.isNullOrEmpty()) {
-            reply("failed", "invalid_message", null)
+            reply("failed", "invalid_message", null, null)
             return
         }
         val ok = if (capability == CAPABILITY_UPDATE) {
@@ -90,19 +90,19 @@ class GlassesModule(
             transport.dismiss(cardId)
         }
         if (ok) {
-            reply("executed", null, "forwarded_no_display_ack")
+            reply("executed", null, "forwarded_no_display_ack", null)
         } else {
-            reply("failed", "unavailable", null)
+            reply("failed", "unavailable", null, null)
         }
     }
 
     private fun handleShow(
         card: GlassesLogic.Card,
-        reply: (String, String?, String?) -> Unit,
+        reply: (String, String?, String?, Map<String, Any?>?) -> Unit,
     ) {
         if (transport.isConnected() && transport.show(card)) {
             // 桥已转发；无 display ack 就明确标 forwarded_no_display_ack
-            reply("executed", null, "forwarded_no_display_ack")
+            reply("executed", null, "forwarded_no_display_ack", null)
             return
         }
         // 降级：手机通知（B5 设计），标注 degraded
@@ -117,11 +117,11 @@ class GlassesModule(
                     openAppOnClick = true,
                 ),
             )
-            reply("executed", null, "degraded:phone_notification")
+            reply("executed", null, "degraded:phone_notification", null)
             Log.i(TAG, "眼镜不可达，已降级手机通知 card=${card.cardId}")
         } catch (t: Throwable) {
             Log.w(TAG, "降级通知失败", t)
-            reply("failed", "unavailable", null)
+            reply("failed", "unavailable", null, null)
         }
     }
 

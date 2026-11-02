@@ -68,6 +68,7 @@
 - 隐私级：`public` / `owner_private` / `owner_sensitive` / `device_secret`（永不进感知事件）。
 - 能力命名：`screen.context.read` `screen.history.search` `screen.evidence.read` `screen.live.subscribe` `phone.notification.post` `phone.notification.read` `phone.call.ring` `phone.call.audio` `phone.device.safe_action`。
 - V1.1 候选（GL-01）：`glasses.card.show` / `glasses.card.update` / `glasses.card.dismiss`（眼镜 HUD；无桥/离线时端侧降级手机通知并回执 provider_ref=degraded:*，绝不伪报 shown）。
+- V1.1（core#58 安卓自主体）：`device.agent.control`（启动/点击/滚动/按键/输入/媒体控制）、`device.agent.observe`（UI 树/截图观察）、`device.agent.shell`（Root Shell 执行与持续会话）；`action.receipt` 增可选 `result`（summary ≤2000 + output_ref 不透明引用）；大输出经 `device.agent.output.read` 查询拉取。Root 命令仅在该设备执行；不做命令白名单，以资源限制/会话管理/紧急停止防失控。
 - 默认最小权限；群聊/非主人会话对 screen.* 一律硬上限拒绝。
 
 ## 6. 幂等与离线
