@@ -404,6 +404,72 @@ class TransportBridge(
                 "getListenableApps" ->
                     result.success(NotificationReadModule.listListenableApps(appContext))
 
+                // ---- 影子采集模块（SM-01；默认关；影子统计不含内容数据） ----
+
+                "getCaptureStatus" -> result.success(
+                    com.wangfanlab.whale.modules.capture.CaptureModule.status(appContext)
+                )
+
+                "setCaptureEnabled" -> {
+                    val enabled = call.argument<Boolean>("enabled")
+                        ?: return result.error("bad_args", "missing enabled", null)
+                    com.wangfanlab.whale.modules.capture.CaptureModule.setEnabled(appContext, enabled)
+                    Log.i(TAG, "影子采集模块开关: $enabled")
+                    result.success(true)
+                }
+
+                "openAccessibilitySettings" -> {
+                    com.wangfanlab.whale.modules.capture.CaptureModule
+                        .openAccessibilitySettings(appContext)
+                    result.success(true)
+                }
+
+                /** SM-02：ScreenMemo 导出目录增量导入（只读旧库；幂等 checkpoint）。 */
+                "importScreenMemoData" -> {
+                    val base = call.argument<String>("base_path")
+                        ?: return result.error("bad_args", "missing base_path", null)
+                    // MethodChannel.Result 必须主线程回执；导入本身在后台线程跑
+                    val main = android.os.Handler(android.os.Looper.getMainLooper())
+                    Thread {
+                        try {
+                            val report = com.wangfanlab.whale.modules.capture.migration
+                                .ScreenMemoImporter(appContext, runtime.captureStore)
+                                .import(java.io.File(base))
+                            main.post {
+                                result.success(
+                                    mapOf(
+                                        "shards_scanned" to report.shardsScanned,
+                                        "rows_imported" to report.rowsImported,
+                                        "rows_duplicate" to report.rowsSkippedDuplicate,
+                                        "rows_deleted" to report.rowsSkippedDeleted,
+                                        "errors" to report.errors,
+                                        "backup_dir" to report.backupDir,
+                                    )
+                                )
+                            }
+                        } catch (t: Throwable) {
+                            main.post { result.error("internal", t.message, null) }
+                        }
+                    }.start()
+                }
+
+                /** SM-03：数据源切换（mcp|builtin；builtin 前置校验不过返回 false）。 */
+                "setCaptureDataSource" -> {
+                    val source = call.argument<String>("source")
+                        ?: return result.error("bad_args", "missing source", null)
+                    val ok = com.wangfanlab.whale.modules.capture.CaptureModule
+                        .setDataSource(appContext, source)
+                    result.success(ok)
+                }
+
+                "setCapturePersistEnabled" -> {
+                    val enabled = call.argument<Boolean>("enabled")
+                        ?: return result.error("bad_args", "missing enabled", null)
+                    com.wangfanlab.whale.modules.capture.CaptureModule
+                        .setPersistEnabled(appContext, enabled)
+                    result.success(true)
+                }
+
                 else -> result.notImplemented()
             }
         } catch (e: Exception) {

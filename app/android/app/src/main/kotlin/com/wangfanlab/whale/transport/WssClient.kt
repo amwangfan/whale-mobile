@@ -153,6 +153,12 @@ class WssClient(
     fun connect(url: String, capabilities: List<String>, appVersion: String) {
         executor.execute {
             if (destroyed) return@execute
+            // 幂等连接：相同地址且已在线/建连中时不重开（防恢复路径与 UI
+            // 自动连接竞态导致服务端踢旧会话的拉锯）。
+            if (this.url == url && state != State.DISCONNECTED) {
+                Log.i(TAG, "已处于 ${stateName(state)}（同地址），忽略重复 connect")
+                return@execute
+            }
             voluntaryClose = false
             this.url = url
             this.capabilities = capabilities

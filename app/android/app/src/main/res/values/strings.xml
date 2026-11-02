@@ -3,4 +3,6 @@
     <!-- 通知监听服务（系统设置「通知使用权」页展示的 label/description） -->
     <string name="whale_notification_listener_label">Whale 通知监听</string>
     <string name="whale_notification_listener_description">仅在 Whale App 内开启模块并勾选 App 后，上报通知标题摘要（不含正文）到你的私有云端。默认不监听任何应用。</string>
+    <!-- 影子采集服务（SM-01）的无障碍描述（系统设置页展示） -->
+    <string name="whale_capture_accessibility_description">Whale 内置屏幕采集（影子模式）：仅统计截图成功率/延迟/重复率，不保存截图、不识别文字。需与独立 ScreenMemo 二选一。</string>
 </resources>

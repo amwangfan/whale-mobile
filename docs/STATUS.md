@@ -102,6 +102,31 @@
 - 测试：JUnit 113/113（新增 ActionDedupStoreTest 6 例）；flutter 81/81
 - 协议版本与兼容影响：无（回执状态机不变；端侧幂等不依赖 core 行为）
 
+### SM-01（Issue #8）— 内置截屏采集模块：影子对照、采集互斥与系统权限
+- 状态：**device-tested**（2026-11-01，leaf5 Android 13 + nova Android 9 真 core）
+- 具体完成：`modules/capture/`（CaptureDecider 纯逻辑护栏链：模块开关→一键暂停→独立 ScreenMemo 互斥→锁屏→排除包名→输入法→间隔节流；DHash 64 位去重；ShadowCaptureService 无障碍服务（canTakeScreenshot=true、canRetrieveWindowContent=false、只收窗口切换事件驱动前台识别）；ShotTaker30 隔离 API 30+ 截屏调用（HARDWARE→ARGB_8888 转换后仅算 dHash，位图立即回收，不落盘不 OCR）；CaptureModule 门面 + getCaptureStatus/setCaptureEnabled/openAccessibilitySettings 桥；UI 影子采集卡（统计实时可见）；CaptureStats 每分钟 logcat 心跳（无内容数据）
+- **leaf5 实测**：ScreenMemo 采集中时 60/60 tick 全部 conflict_standalone_screenmemo 跳过（互斥成立）；临时切换采集源后真实影子采集 attempts=12/unique=2/dup=10/fail=0、latency 22ms（切屏即 unique、静态画面正确去重）；验证后已还原 ScreenMemo 采集并关闭本模块
+- **nova（API 28）实测**：takeScreenshot 不可用 → 明确 api_below_30 降级跳过，服务稳定不崩溃（低版本不 Root、不反射）
+- 联调修复：canRetrieveWindowContent=false 时 getWindows() 为空 → 前台识别改窗口事件包名；HARDWARE 位图不可 getPixels → 先转软件位图；tick 异常吞没防 worker 线程死亡；connect 幂等（防恢复路径与 UI 自动连接竞态被服务端踢会话）
+- 测试：JUnit 122/122（CaptureDeciderTest 9 例）；flutter 81/81
+- 协议版本与兼容影响：无（影子统计仅本地，未上行）
+
+### SM-02（Issue #9）— 原生 OCR、本地索引与 ScreenMemo 数据迁移工具（可回滚）
+- 状态：**device-tested**（2026-11-01，leaf5 真机）
+- 具体完成：`CaptureStore`（whale_capture.db：截图元数据+去重键(capture_time,package,dhash)+FTS5 索引，FTS5 不可用时自动 LIKE 降级——BOOX 实测触发该路径）；`MlKitOcrEngine`（text-recognition-chinese 本地识别，Tasks.await 同步等待——修复 listener 回调丢失假超时）；`CapturePipeline`（唯一帧→JPEG 落 filesDir→OCR→索引，失败记 ocr_status=failed 可重试）；`ScreenMemoImporter`（真实分片布局 shards/<pkg>/<year>/smm_*.db、shots_YYYYMM 表；校验→备份→事务增量导入（checkpoint 断点续跑）→去重幂等；is_deleted 尊重旧库删除语义）；persist 开关（capture_persist_enabled，默认 false 纯影子）；importScreenMemoData 桥（主线程回执）
+- **leaf5 实测**：唯一帧落盘 JPG + ML Kit 中文 OCR 真实命中（设置页 163 字：「设置/网络和互联网/…」）+ 索引可查；真实分库夹具（脱敏后入库测试资源）导入 77/77 行、去重/checkpoint/备份全过
+- 测试：JUnit 135/135（CaptureStoreTest 8 + ImporterTest 5 含真实夹具）；flutter 81/81
+- 诚实边界：迁移期条目不带本地图像（image_path 空，evidence.read 对其回 unavailable）；数据源切换属 #10
+- 协议版本与兼容影响：无
+
+### SM-03（Issue #10）— 统一 APK 数据源切换、发布回滚与旧 ScreenMemo 兼容期
+- 状态：**device-tested**（2026-11-01，leaf5 真 core）
+- 具体完成：`NativeScreenQueryHandler`（builtin 数据源：context.read/history.search/evidence.read 直答 CaptureStore，字段形状与 MCP adapter 对齐，Core 无感知；证据 JPEG 帧预算阶梯压缩）；数据源开关 whale_capture/data_source（mcp|builtin，默认 mcp；builtin 需持久化+无障碍前置校验，不过拒绝）；切换审计日志（无内容）；UI 采集卡加持久化开关/数据源切换/迁移导入入口与结果展示；NodeRuntime sensor.query 路由（builtin 优先，MCP 回退路径保留）
+- **leaf5 实测**：builtin 数据源下销毁 UI → `screen.history.search("设置")` → source=capture.local 真实命中（OCR snippet 200 字内、opaque capture:N 引用）；`screen.evidence.read capture:1` → JPEG 压缩回传（64KB，downscaled）；还原回 mcp 后 ScreenMemo 独立采集不受影响
+- 回滚：数据源默认 mcp；builtin 可随时切回；导入工具只读旧库且备份先行；旧 ScreenMemo APK 不卸载要求
+- 测试：JUnit 142/142（NativeScreenQueryHandlerTest 7 例）；flutter 81/81
+- 协议版本与兼容影响：无（source 字段细化，字段向后兼容）
+
 ---
 
 ## 阶段二（B 系列，Gate A 后启动）

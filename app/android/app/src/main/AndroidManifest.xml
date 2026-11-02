@@ -111,6 +111,22 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <!-- ==================== 影子采集模块（SM-01，Issue #8；默认关） ==================== -->
+        <!-- 影子模式：只统计截图成功率/延迟/重复率，不保存截图、不 OCR；
+             与独立 ScreenMemo 采集互斥（conflict_standalone_screenmemo 自动跳过）。 -->
+        <service
+            android:name="com.wangfanlab.whale.modules.capture.ShadowCaptureService"
+            android:label="Whale 影子采集"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/whale_capture_accessibility" />
+        </service>
+
         <!-- ==================== 通知监听模块（B3 前半，phone.notification.read） ==================== -->
         <!-- 独立可选模块（whale_modules/notification_read_enabled 默认 false）；
              特殊访问权限未授予时系统不绑定本服务，天然 fail-closed。

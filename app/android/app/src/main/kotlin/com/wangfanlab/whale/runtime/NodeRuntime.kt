@@ -72,6 +72,15 @@ class NodeRuntime private constructor(
     /** SEC-01：队列 payload 以身份主密钥（Keystore AES/GCM）应用层加密。 */
     val queue: OfflineQueue = OfflineQueue(appContext, cipher = IdentityQueueCipher(identity))
 
+    /** SM-02：内置采集存储（截图元数据+OCR 索引）与持久化管线。 */
+    val captureStore: com.wangfanlab.whale.modules.capture.CaptureStore =
+        com.wangfanlab.whale.modules.capture.CaptureStore(appContext)
+    val capturePipeline: com.wangfanlab.whale.modules.capture.CapturePipeline =
+        com.wangfanlab.whale.modules.capture.CapturePipeline(
+            appContext, captureStore,
+            com.wangfanlab.whale.modules.capture.ocr.OcrEngine.mlKit,
+        )
+
     val notificationModule: NotificationModule = NotificationModule(appContext)
 
     /** 通知监听模块：init 即触碰，注册 NotificationListenerService 静态钩子。 */
@@ -373,8 +382,24 @@ class NodeRuntime private constructor(
      * 1. 全局暂停 → paused；2. Dart 委托接管 → 转发；3. 否则 false →
      * WssClient fail-closed 回 unavailable。
      */
+    /** SM-03：内置数据源时 screen.* 查询走本机 CaptureStore（无 UI 也可答）。 */
+    private val nativeScreenQuery by lazy {
+        com.wangfanlab.whale.modules.capture.NativeScreenQueryHandler(appContext, captureStore) { requestId, status, data, truncated, source ->
+            client.sendSensorResult(requestId, status, data, truncated, source)
+        }
+    }
+
     override fun onSensorQuery(payload: Map<String, Any?>): Boolean {
         val requestId = payload["request_id"] as? String ?: return false
+        // SM-03：数据源为 builtin 且操作受支持 → 原生直接回答（先于 Dart 委托）
+        val operation = payload["operation"] as? String ?: ""
+        if (!isAllPaused(appContext) &&
+            com.wangfanlab.whale.modules.capture.CaptureModule.dataSource(appContext) ==
+            com.wangfanlab.whale.modules.capture.CaptureModule.SOURCE_BUILTIN &&
+            com.wangfanlab.whale.modules.capture.NativeScreenQueryHandler.supports(operation)
+        ) {
+            return nativeScreenQuery.handle(payload)
+        }
         return when (SensorQueryDispatch.decide(
             allPaused = isAllPaused(appContext),
             hasDelegate = sensorQueryHandler != null,
