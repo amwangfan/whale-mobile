@@ -12,7 +12,7 @@ import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.os.Build
 import android.util.Log
-import com.wangfanlab.whale.transport.TransportBridge
+import com.wangfanlab.whale.runtime.NodeRuntime
 import com.wangfanlab.whale.transport.WssClient
 
 /**
@@ -30,7 +30,7 @@ class NotificationModule(
     private val decider: NotificationDecider = NotificationDecider(
         moduleEnabled = { isEnabled(context.applicationContext) },
         permissionGranted = { permissionGranted(context.applicationContext) },
-        allPaused = { TransportBridge.isAllPaused(context.applicationContext) },
+        allPaused = { NodeRuntime.isAllPaused(context.applicationContext) },
     ),
 ) : WssClient.ActionExecutor {
 

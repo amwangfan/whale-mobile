@@ -7,7 +7,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.util.Log
-import com.wangfanlab.whale.transport.TransportBridge
+import com.wangfanlab.whale.runtime.NodeRuntime
 import com.wangfanlab.whale.transport.WssClient
 
 /**
@@ -27,7 +27,7 @@ class SafeActionModule(
     private val context: Context,
     private val decider: SafeActionDecider = SafeActionDecider(
         moduleEnabled = { isEnabled(context.applicationContext) },
-        allPaused = { TransportBridge.isAllPaused(context.applicationContext) },
+        allPaused = { NodeRuntime.isAllPaused(context.applicationContext) },
         isLaunchable = { pkg -> queryLaunchable(context.applicationContext, pkg) },
     ),
     /** 执行出口（测试可替换）；默认走系统 Intent。 */

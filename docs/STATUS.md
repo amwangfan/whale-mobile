@@ -61,6 +61,23 @@
 ### WM-07 — Phase I 真机验收（Gate A）
 - 状态：not_started（依赖 WM-04..06；设备矩阵见 docs/ARCHITECTURE.md §5）
 
+### BG-01（Issue #2）— WSS/设备身份/离线队列脱离 Flutter Activity：NodeService
+- 状态：**device-tested**（2026-11-01，leaf5 真 core）
+- 具体完成：`WhaleApp`（Application）持有 `NodeRuntime` 进程级单例（WssClient/DeviceIdentity/OfflineQueue/通知·VoIP·safe_action 执行器唯一所有者，二次创建直接抛错）；`NodeService` 前台服务（dataSync 类型、whale_status 常驻通知 + 「停止」动作即断开）；`TransportBridge` 瘦身为 UI 客户端（Engine 销毁只注销监听/委托，不拆连接）；sensor.query 处理器链 paused→Dart 委托→fail-closed unavailable；新增 `setBgServiceEnabled`（whale_modules/bg_service_enabled，默认 true）
+- **leaf5 实测**：UI BACK 销毁 Activity 后进程存活、NodeService 前台运行、core `online:true`；无 UI 时 `phone.notification.post` → **executed**（通知栏可见）；无 UI 时 `screen.history.search` → **unavailable**（source=none，无静默 accepted）；重进 UI → 状态补发 + Dart 委托自动恢复 → `screen.history.search` ok 命中
+- 测试：JUnit 92/92（新增 runtime.SensorQueryDispatchTest/UiEventHubTest 10 例）；flutter 81/81；flutter analyze 0 issue
+- 尚未实现：Doze/重启/网络切换恢复矩阵（BG-02）；Android 15 dataSync 6h 上限的降级提示（BG-02）
+- 协议版本与兼容影响：无（contracts/v1 未动）
+
+### BG-02（Issue #3）— 长期后台存活、重启恢复、网络恢复与任务调度
+- 状态：**device-tested**（2026-11-01，leaf5 + nova 真 core）
+- 具体完成：`RecoveryPolicy`（曾连接&&未暂停&&未撤销 才恢复，纯逻辑可单测）；`BootReceiver`（BOOT_COMPLETED→评估→重连）；`NodeRuntime.recoverIfNeeded`（process_start/service_restart/boot 三入口）；默认网络回调（恢复即重置退避立即重连）；`WssClient.reconnectNow` + `last_disconnect_reason` 诊断；getStateInfo 增 network_available/was_connected/battery_opt_ignored/node_service_running；毒丸防护（event_id<16 队列条目拦截丢弃，修复旧版 sm-N 短 id 随重连无限重发被 core schema 拒绝的问题）
+- **leaf5 实测**：kill -9 → START_STICKY 拉起 → 自动重连 online；服务端（dev core）重启 → 双机 55s 内自动恢复；wifi 断开/恢复 → 自动回线；**整机重启** → BootReceiver 评估发起重连 → FGS 前台 → online（logcat 原文存档）
+- **nova 实测**：写入 all_paused=true 后杀进程 → 进程被拉起但恢复评估明确「不恢复（paused=true）」，core 侧保持 offline——一键暂停优先于一切后台恢复
+- 诚实边界：force-stop 后任何应用都不能自动恢复（Android 语义，不绕过）；Android 15 不允许开机拉起 dataSync FGS（届时进程内连接降级）；Doze/OEM 白名单差异待 Magic8 Pro（#7）
+- 测试：JUnit 97/97（新增 RecoveryPolicyTest 5 例）；flutter 81/81；analyze 0
+- 协议版本与兼容影响：无
+
 ---
 
 ## 阶段二（B 系列，Gate A 后启动）
