@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../transport/transport_client.dart';
 import 'adapter.dart';
+import 'event_governor.dart';
 import 'mcp_client.dart';
 
 /// sensor.event 上行入口（与 TransportClient.sendSensorEvent 命名参数子集对齐，
@@ -37,6 +38,7 @@ class ScreenMemoEventPoller extends ChangeNotifier {
     required ScreenMemoMcpClient client,
     required SensorEventSender sendEvent,
     required Stream<TransportState> transportStates,
+    EventGovernor? governor,
     Future<bool> Function()? isAllPaused,
     Future<bool> Function()? hasToken,
     bool Function()? moduleEnabled,
@@ -54,6 +56,7 @@ class ScreenMemoEventPoller extends ChangeNotifier {
         _moduleEnabled = moduleEnabled, // ignore: prefer_initializing_formals
         _prefsProvider = prefsProvider ?? SharedPreferences.getInstance,
         _transportState = initialTransportState,
+        _governor = governor ?? EventGovernor(),
         _logger = logger; // ignore: prefer_initializing_formals
 
   /// 游标持久化键（SharedPreferences）。
@@ -73,6 +76,12 @@ class ScreenMemoEventPoller extends ChangeNotifier {
   final bool Function()? _moduleEnabled;
   final Future<SharedPreferences> Function() _prefsProvider;
   final void Function(String message)? _logger;
+
+  /// EV-01：感知数据治理器（预算/合并/去重/隐私过滤；决定为终态）。
+  final EventGovernor _governor;
+
+  /// 治理统计（reason → count；展示/审计用）。
+  Map<String, int> get governorStats => _governor.stats;
 
   /// 正常轮询间隔（默认 15s）。
   final Duration interval;
@@ -199,6 +208,21 @@ class ScreenMemoEventPoller extends ChangeNotifier {
           maxSummaryChars,
         );
         final occurredAt = ScreenMemoAdapter.asInt(event['occurred_at']);
+        // EV-01：治理裁决（终态——丢弃事件照常推进游标，不补传）。
+        final decision = _governor.decide(
+          GovernedEvent(
+            id: id,
+            kind: kind,
+            summary: summary,
+            occurredAtMs: occurredAt ?? DateTime.now().millisecondsSinceEpoch,
+          ),
+          DateTime.now().millisecondsSinceEpoch,
+        );
+        if (!decision.pass) {
+          _logger?.call('事件治理丢弃(${decision.reason}) id=$id kind=$kind');
+          await _advanceCursor(id);
+          continue;
+        }
         try {
           await _sendEvent(
             kind: kind,

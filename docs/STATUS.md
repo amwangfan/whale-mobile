@@ -127,6 +127,22 @@
 - 测试：JUnit 142/142（NativeScreenQueryHandlerTest 7 例）；flutter 81/81
 - 协议版本与兼容影响：无（source 字段细化，字段向后兼容）
 
+### EV-01（Issue #11）— 增量感知数据治理：合并、去重、隐私预算
+- 状态：**device-tested**（2026-11-01，leaf5 真 core）
+- 具体完成：`EventGovernor`（纯 Dart 可单测）：过期丢弃（>10min 不补传）、隐私关键词过滤（输入法/锁屏/支付等默认拒绝 + 用户黑白名单）、同 App 同 kind 60s 时间窗合并、simhash64 近重复抑制（汉明 ≤4）、每 App 12/h 与全局 120/h 滑动窗口预算；接入 EventPoller（治理为终态：丢弃即推进游标）；治理统计入 UI 导出状态行
+- **leaf5 实测**：注入 2 条同内容同 App 新鲜事件 → core 仅收 1 条（近重复被合并抑制），游标推进不卡死；存量 6 条 >10min 旧事件按 stale 规则不补传（游标推进至 211 而 core 无新增）；事件源侧修复：ScreenMemo fork 补显示源目标变化挂钩（whale/hardening edd0cef，修复 BOOX 固件无障碍事件断流）
+- 测试：flutter 89/89（新增 event_governor_test 8 例：stale/过滤/黑白名单/合并/simhash/预算/哈希性质）；JUnit 142/142
+- 与 #4 对接：事件经 WssClient 离线队列，payload 已应用层加密
+- 协议版本与兼容影响：无
+
+### EV-02（Issue #12）— 主动提醒闭环（手机侧完成度）
+- 状态：**mobile 部分 device-tested**（2026-11-01，nova 真 core）；Core 运行时自治接线待 whale-core 侧
+- 具体完成：contracts/v1 action.request 增可选 correlation_id（校验器 18/18，示例同步）；whale-core-dev gateway/REST 透传（2e7082c，28 项设备测试过）；NotificationModule 执行后 provider_ref 回显 corr:<id>（审计链闭合）
+- **nova 实测（真 core dev）**：事件 device:event 落库 → POST action 带 correlation_id → executed → 回执 provider_ref=corr:sm-0000000000212 → core receipts 链可追
+- 诚实边界：Core 运行时自治决策接线（sensor_event→situation→rule→remind 的活路由与规则配置）属 whale-core 侧（其 #9 已闭于桥/测试层）；本项在 mobile 侧所需全部能力已就绪且真机验证
+- 负例复核：一键暂停/模块关/撤销 fail-closed 由 BG/SEC 系列覆盖
+- 协议版本与兼容影响：contracts/v1 minor（可选字段）
+
 ---
 
 ## 阶段二（B 系列，Gate A 后启动）

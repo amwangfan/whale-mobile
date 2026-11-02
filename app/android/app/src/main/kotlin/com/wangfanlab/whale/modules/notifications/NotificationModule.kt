@@ -55,7 +55,13 @@ class NotificationModule(
 
             is NotificationDecision.Execute -> try {
                 apply(decision.spec)
-                reply("executed", null, null)
+                // EV-02：correlation_id（事件→决策→动作的关联键）经 provider_ref 回显，
+                // core 侧可按此把回执串回触发事件（审计链闭合）。
+                val corr = (payload["correlation_id"] as? String)?.takeIf { it.length in 8..64 }
+                if (corr != null) {
+                    Log.i(TAG, "通知已执行 correlation=$corr")
+                }
+                reply("executed", null, corr?.let { "corr:$it" })
             } catch (t: Throwable) {
                 Log.e(TAG, "通知执行异常", t)
                 reply("failed", "internal", null)
