@@ -9,6 +9,7 @@ import com.wangfanlab.whale.modules.notifications.NotificationModule
 import com.wangfanlab.whale.modules.safeaction.SafeActionModule
 import com.wangfanlab.whale.modules.voip.VoipModule
 import com.wangfanlab.whale.transport.DeviceIdentity
+import com.wangfanlab.whale.transport.IdentityQueueCipher
 import com.wangfanlab.whale.transport.Ids
 import com.wangfanlab.whale.transport.OfflineQueue
 import com.wangfanlab.whale.transport.WssClient
@@ -67,7 +68,9 @@ class NodeRuntime private constructor(
     // ------------------------------------------------------------- 运行时组件（唯一实例）
 
     val identity: DeviceIdentity = DeviceIdentity(appContext)
-    val queue: OfflineQueue = OfflineQueue(appContext)
+
+    /** SEC-01：队列 payload 以身份主密钥（Keystore AES/GCM）应用层加密。 */
+    val queue: OfflineQueue = OfflineQueue(appContext, cipher = IdentityQueueCipher(identity))
 
     val notificationModule: NotificationModule = NotificationModule(appContext)
 
@@ -412,6 +415,9 @@ class NodeRuntime private constructor(
             )
         )
     }
+
+    /** SEC-03：无原生执行器的 action 只有在 UI 在时才转发 Dart，否则客户端回 unavailable。 */
+    override fun hasUiActionHandler(): Boolean = uiEventHub.hasListeners
 
     override fun onProtocolError(code: String, message: String, refId: String) {
         // 撤销/认证失败为终态：标记 revoked，清除恢复上下文（BG-02 不擅自重连）。

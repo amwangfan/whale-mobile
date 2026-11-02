@@ -78,6 +78,30 @@
 - 测试：JUnit 97/97（新增 RecoveryPolicyTest 5 例）；flutter 81/81；analyze 0
 - 协议版本与兼容影响：无
 
+### SEC-01（Issue #4）— OfflineQueue 敏感 payload 加密、版本迁移及撤销后清理
+- 状态：**device-tested**（2026-11-01，nova 真 core）
+- 具体完成：`QueueCipher` 接口 + `IdentityQueueCipher`（复用身份 Keystore AES-256/GCM 主密钥，材料不出 Keystore）；`payload_json` 列自 DB v2 起存 `v1.` 前缀密文；v1→v2 单事务迁移（读旧明文→加密→写回；幂等跳过已加密；加密失败删除不留明文）；出库解密失败 fail-closed 丢弃并计入 dropped（绝不上传明文/半解密）；无 cipher 打开加密库即拒绝读出
+- **nova 实测**：升级安装后 ring 动作 executed 触发真实事件流 → 队列 12 条全部 `v1.` 密文、0 明文行、PRAGMA user_version=2、事件正常 SENT→ACKED（解密 flush 无回归）
+- 测试：JUnit 103/103（新增 OfflineQueueEncryptionTest 6 例，Robolectric 真实 SQLite：迁移/幂等/密文落库/损坏 fail-closed/无 cipher 删除明文/容量幂等不变）
+- 撤销后清理：device_revoked 时 queue.clear() 原有语义不变（密文行一并清空）；卸载由系统擦除
+- 协议版本与兼容影响：无
+
+### SEC-02（Issue #5）— NotificationListenerService 独立接入：无 UI 也不丢已授权事件
+- 状态：**device-tested**（2026-11-01，nova 真 core；老认知「nova 不绑定监听」本次证伪，见下）
+- 具体完成：钩子未就绪→有界缓冲（NotificationEventBuffer 容量 20，溢出丢最旧计数）不静默丢；onListenerConnected/Disconnected 观测（bound 与 granted 分开）；解绑自动 requestRebind；缓冲回放；bindingStatus（permission/bound/last_bound_at/buffered/dropped_overflow）经 getNotificationReadStatus 出桥；UI 模块卡「监听权限/系统绑定」分行显示
+- **nova 实测**：kill -9 冷启动 → BG-02 自动重连（全程未开 UI）→ core 下发 notification.post → **系统独立绑定的监听器捕获** → 白名单过滤 → core 落 `notification.posted | Whale: SEC02冷启动验证`；授权授予但模块/白名单默认关时事件丢弃（fail-closed 日志可证）
+- 测试：JUnit 107/107（新增 NotificationEventBufferTest 4 例）；flutter 81/81；analyze 0
+- 设备兼容记录：leaf5（BOOX 固件）历史观测不绑定；Magic8 Pro 复测归 #7
+- 协议版本与兼容影响：无
+
+### SEC-03（Issue #6）— 动作回执终态语义、幂等持久化及真实可见性
+- 状态：**device-tested**（2026-11-01，nova 真 core）
+- 具体完成：action_dedup 持久幂等表（whale_transport.db v3，4096 容量 FIFO）；WssClient 下行幂等改读持久表——重复键：在飞→重发 received、已终结→重发真实终态、**跨重启未终结→unknown 绝不重放**；无执行器且无 UI → 立即 failed/unavailable（不再悬挂 accepted）；Dart 未注册 capability 回 failed/unavailable；Dart/执行器终态均落幂等表（sendActionReceipt 按 action_id 补记）；校验失败（expired/scope_denied/capability_unknown）同步落终态
+- **nova 实测**：同幂等键 REST 重发 → core 409 duplicate（端侧持久表为深度防御）；无 UI 时 screen.live.subscribe（无执行器）→ **failed/unavailable**；无 UI 时 notification.post → **executed**（两条路径均诚实终态）
+- 诚实边界：safe_action launch_app 维持 foreground_verified/background_restricted/unverified_no_usage_access 三态（此前已实现）；跨重启 unknown 的设备端注入演练因设备无 sqlite3 未做，由 Robolectric 存储层测试 + 代码审查覆盖
+- 测试：JUnit 113/113（新增 ActionDedupStoreTest 6 例）；flutter 81/81
+- 协议版本与兼容影响：无（回执状态机不变；端侧幂等不依赖 core 行为）
+
 ---
 
 ## 阶段二（B 系列，Gate A 后启动）

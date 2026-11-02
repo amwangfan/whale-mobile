@@ -372,6 +372,15 @@ class TransportBridge(
                 "getNotificationReadPermissionStatus" ->
                     result.success(NotificationReadModule.permissionStatus(appContext))
 
+                /**
+                 * SEC-02：授权（granted/denied）与系统实际绑定（bound）分开观测，
+                 * 附带缓冲/溢出计数与最近绑定时间。
+                 */
+                "getNotificationReadStatus" -> result.success(
+                    com.wangfanlab.whale.modules.notificationread
+                        .WhaleNotificationListenerService.bindingStatus(appContext)
+                )
+
                 /** 「去授权」：跳系统通知监听设置页（特殊访问权限无运行时弹窗）。 */
                 "openNotificationListenerSettings" -> {
                     NotificationReadModule.openListenerSettings(appContext)

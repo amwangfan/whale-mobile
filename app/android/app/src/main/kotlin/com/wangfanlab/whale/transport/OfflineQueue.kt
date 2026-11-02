@@ -4,11 +4,15 @@ import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import android.util.Log
 
 /**
  * 上行消息离线队列（contracts/v1 §6：至少一次送达 + core 按 event_id 去重）。
  *
  * - 持久化于 SQLite（android.database.sqlite，无第三方 ORM）；
+ * - **payload 应用层加密（SEC-01）**：`payload_json` 列自 DB v2 起存放
+ *   `v1.` 前缀的 AES/GCM 密文（[QueueCipher]，生产为 Keystore 主密钥）；
+ *   metadata 只保留队列状态（event_id/type/state/时间戳），不含内容；
  * - 三态：PENDING（未送出）→ SENT（已写入 WS，待确认）→ ACKED（已确认）；
  *   协议 V1 尚无 sensor.event 的应用层 ack，SENT 表示帧已交付 TCP；连接断开重连后
  *   SENT 一律回退 PENDING 重发（重复由 core 按 event_id 幂等吸收）；
@@ -17,6 +21,9 @@ import android.database.sqlite.SQLiteOpenHelper
  *   消息并累加 dropped 计数（持久化于 queue_meta，重启不丢）；
  * - drop_on_pause：置位的事件在「功能暂停」（heartbeat status=paused）期间不补传，
  *   恢复在线前由 [purgeDropOnPause] 清除并计数（§6：暂停期间不补传私人历史）。
+ * - fail-closed：解密失败（密文损坏/主密钥失效）的条目直接丢弃并计入 dropped，
+ *   绝不上传明文或半解密内容；v1→v2 迁移在单事务内「读旧→加密→写回」，
+ *   迁移中无法加密的条目宁可删除也不留明文。
  *
  * 只存 payload 不存信封：id/ts/seq 在实际发送时生成，保证每次重发都是合法新帧，
  * 而幂等语义由 payload.event_id 承担。
@@ -25,6 +32,7 @@ class OfflineQueue(
     context: Context,
     dbName: String = DEFAULT_DB_NAME,
     private val capacity: Int = DEFAULT_CAPACITY,
+    private val cipher: QueueCipher? = null,
 ) : SQLiteOpenHelper(context, dbName, null, DB_VERSION) {
 
     enum class State(val code: Int) {
@@ -72,12 +80,82 @@ class OfflineQueue(
         )
         db.execSQL("CREATE INDEX idx_queue_state_created ON uplink_queue(state, created_at)")
         db.execSQL("CREATE TABLE queue_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        createActionDedupTable(db)
+    }
+
+    private fun createActionDedupTable(db: SQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS action_dedup (
+              idem_key       TEXT PRIMARY KEY,
+              action_id      TEXT NOT NULL,
+              capability     TEXT NOT NULL,
+              terminal_state TEXT,
+              error_code     TEXT,
+              created_at     INTEGER NOT NULL,
+              updated_at     INTEGER NOT NULL
+            )
+            """.trimIndent()
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS idx_action_dedup_action_id ON action_dedup(action_id)",
+        )
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        db.execSQL("DROP TABLE IF EXISTS uplink_queue")
-        db.execSQL("DROP TABLE IF EXISTS queue_meta")
-        onCreate(db)
+        if (oldVersion < 2) {
+            // SEC-01 v1→v2：明文 payload 事务式加密迁移。
+            // 幂等：已带 v1. 前缀的行跳过；无法加密的行删除（fail closed，不留明文）。
+            migratePlaintextToEncrypted(db)
+        }
+        if (oldVersion < 3) {
+            // SEC-03 v3：动作幂等表（与加密迁移叠加，不丢队列内容）。
+            createActionDedupTable(db)
+        }
+    }
+
+    /** v1→v2 迁移：读旧明文 → 加密 → 写回，单事务；无 cipher 或加密失败的行删除。 */
+    private fun migratePlaintextToEncrypted(db: SQLiteDatabase) {
+        val rows = mutableListOf<Pair<String, String>>()
+        db.query(
+            "uplink_queue", arrayOf("event_id", "payload_json"),
+            null, null, null, null, null,
+        ).use { c ->
+            while (c.moveToNext()) rows.add(c.getString(0) to c.getString(1))
+        }
+        var migrated = 0
+        var dropped = 0
+        db.beginTransaction()
+        try {
+            for ((eventId, payload) in rows) {
+                if (payload.startsWith(CIPHER_PREFIX)) continue // 幂等：已加密
+                val enc = try {
+                    cipher?.encrypt(payload)
+                } catch (t: Throwable) {
+                    Log.w(TAG, "迁移加密失败 event_id=$eventId，删除该条（fail closed）", t)
+                    null
+                }
+                if (enc == null) {
+                    db.delete("uplink_queue", "event_id = ?", arrayOf(eventId))
+                    dropped++
+                } else {
+                    db.update(
+                        "uplink_queue",
+                        ContentValues().apply {
+                            put("payload_json", CIPHER_PREFIX + enc)
+                            put("updated_at", System.currentTimeMillis())
+                        },
+                        "event_id = ?", arrayOf(eventId),
+                    )
+                    migrated++
+                }
+            }
+            if (dropped > 0) addDropped(db, dropped.toLong())
+            db.setTransactionSuccessful()
+            Log.i(TAG, "队列迁移 v1→v2：加密 $migrated 条，删除 $dropped 条")
+        } finally {
+            db.endTransaction()
+        }
     }
 
     /**
@@ -98,7 +176,7 @@ class OfflineQueue(
             val values = ContentValues().apply {
                 put("event_id", eventId)
                 put("type", type)
-                put("payload_json", payloadJson)
+                put("payload_json", encryptPayload(payloadJson))
                 put("state", State.PENDING.code)
                 put("drop_on_pause", if (dropOnPause) 1 else 0)
                 put("created_at", nowMs)
@@ -120,6 +198,7 @@ class OfflineQueue(
     @Synchronized
     fun pendingBatch(limit: Int = 100): List<Entry> {
         val out = ArrayList<Entry>(limit)
+        val corrupted = ArrayList<String>()
         readableDatabase.query(
             "uplink_queue",
             arrayOf("event_id", "type", "payload_json", "state", "drop_on_pause", "created_at"),
@@ -127,16 +206,38 @@ class OfflineQueue(
             null, null, "created_at ASC", limit.toString(),
         ).use { c ->
             while (c.moveToNext()) {
+                val eventId = c.getString(0)
+                val plain = try {
+                    decryptPayload(c.getString(2))
+                } catch (t: Throwable) {
+                    // fail closed：密文损坏/密钥失效 → 收集后统一丢弃，绝不送明文
+                    Log.w(TAG, "队列条目解密失败，丢弃 event_id=$eventId", t)
+                    corrupted.add(eventId)
+                    continue
+                }
                 out.add(
                     Entry(
-                        eventId = c.getString(0),
+                        eventId = eventId,
                         type = c.getString(1),
-                        payloadJson = c.getString(2),
+                        payloadJson = plain,
                         state = State.of(c.getInt(3)),
                         dropOnPause = c.getInt(4) != 0,
                         createdAt = c.getLong(5),
                     )
                 )
+            }
+        }
+        if (corrupted.isNotEmpty()) {
+            val db = writableDatabase
+            db.beginTransaction()
+            try {
+                for (id in corrupted) {
+                    db.delete("uplink_queue", "event_id = ?", arrayOf(id))
+                }
+                addDropped(db, corrupted.size.toLong())
+                db.setTransactionSuccessful()
+            } finally {
+                db.endTransaction()
             }
         }
         return out
@@ -266,9 +367,128 @@ class OfflineQueue(
         null, null, null,
     ).use { c -> if (c.moveToFirst()) c.getString(0).toLongOrNull() ?: 0L else 0L }
 
+    // ---- 动作幂等持久化（SEC-03） ----
+
+    data class ActionRecord(
+        val idemKey: String,
+        val actionId: String,
+        val capability: String,
+        val terminalState: String?,
+        val errorCode: String?,
+    )
+
+    /** 记录新动作（幂等）。返回 true=新插入；false=键已存在。 */
+    @Synchronized
+    fun recordActionIfAbsent(
+        idemKey: String,
+        actionId: String,
+        capability: String,
+        nowMs: Long = System.currentTimeMillis(),
+    ): Boolean {
+        val values = ContentValues().apply {
+            put("idem_key", idemKey)
+            put("action_id", actionId)
+            put("capability", capability)
+            put("created_at", nowMs)
+            put("updated_at", nowMs)
+        }
+        val rowId = writableDatabase.insertWithOnConflict(
+            "action_dedup", null, values, SQLiteDatabase.CONFLICT_IGNORE,
+        )
+        if (rowId >= 0) evictActionDedup(writableDatabase)
+        return rowId >= 0
+    }
+
+    fun getActionRecord(idemKey: String): ActionRecord? = readableDatabase.query(
+        "action_dedup",
+        arrayOf("idem_key", "action_id", "capability", "terminal_state", "error_code"),
+        "idem_key = ?", arrayOf(idemKey), null, null, null,
+    ).use { c ->
+        if (!c.moveToFirst()) return null
+        ActionRecord(
+            idemKey = c.getString(0),
+            actionId = c.getString(1),
+            capability = c.getString(2),
+            terminalState = if (c.isNull(3)) null else c.getString(3),
+            errorCode = if (c.isNull(4)) null else c.getString(4),
+        )
+    }
+
+    /** 记录终态（executed/failed/unknown；幂等覆盖——同一终态重记无副作用）。 */
+    @Synchronized
+    fun setActionTerminal(
+        idemKey: String,
+        state: String,
+        errorCode: String?,
+        nowMs: Long = System.currentTimeMillis(),
+    ): Boolean = writableDatabase.update(
+        "action_dedup",
+        ContentValues().apply {
+            put("terminal_state", state)
+            put("error_code", errorCode)
+            put("updated_at", nowMs)
+        },
+        "idem_key = ?", arrayOf(idemKey),
+    ) > 0
+
+    /** Dart 侧回执路径按 action_id 找键补记终态。 */
+    @Synchronized
+    fun setActionTerminalByActionId(
+        actionId: String,
+        state: String,
+        errorCode: String?,
+        nowMs: Long = System.currentTimeMillis(),
+    ): Boolean = writableDatabase.update(
+        "action_dedup",
+        ContentValues().apply {
+            put("terminal_state", state)
+            put("error_code", errorCode)
+            put("updated_at", nowMs)
+        },
+        "action_id = ?", arrayOf(actionId),
+    ) > 0
+
+    /** 有界：超过 [ACTION_DEDUP_CAPACITY] 时淘汰最旧记录。 */
+    private fun evictActionDedup(db: SQLiteDatabase) {
+        db.execSQL(
+            "DELETE FROM action_dedup WHERE idem_key IN (" +
+                "SELECT idem_key FROM action_dedup ORDER BY created_at DESC " +
+                "LIMIT -1 OFFSET $ACTION_DEDUP_CAPACITY)",
+        )
+    }
+
+    // ---- payload 加解密（SEC-01） ----
+
+    /** 入库前加密；无 cipher（测试/降级）时原样存储。 */
+    private fun encryptPayload(plain: String): String {
+        val c = cipher ?: return plain
+        return CIPHER_PREFIX + c.encrypt(plain)
+    }
+
+    /** 出库后解密；无 cipher 时要求明文（带前缀视为损坏）。 */
+    private fun decryptPayload(stored: String): String {
+        if (stored.startsWith(CIPHER_PREFIX)) {
+            val c = cipher ?: throw SecurityException("密文队列但无 cipher")
+            return c.decrypt(stored.removePrefix(CIPHER_PREFIX))
+        }
+        // 兼容窗口：迁移前入队的明文行（v1 遗留）只读不加密写回；
+        // 正常路径（cipher 非空且迁移已跑）不会命中。
+        if (cipher != null) throw SecurityException("明文 payload 出现在加密队列")
+        return stored
+    }
+
     companion object {
-        private const val DB_VERSION = 1
+        private const val TAG = "WhaleOfflineQueue"
+
+        /** DB v2：payload_json 列存 `v1.` 前缀密文（SEC-01）；v3：action_dedup（SEC-03）。 */
+        private const val DB_VERSION = 3
         private const val META_DROPPED = "dropped_count"
+
+        /** 密文格式版本前缀（格式演进时递增并写迁移）。 */
+        const val CIPHER_PREFIX = "v1."
+
+        /** 动作幂等表容量（FIFO 淘汰）。 */
+        const val ACTION_DEDUP_CAPACITY = 4096
         const val DEFAULT_DB_NAME = "whale_transport.db"
         const val DEFAULT_CAPACITY = 1000
     }
