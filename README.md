@@ -36,6 +36,17 @@
 - 基本功能不依赖 Root；Root 仅作可选增强模块。
 - 未连真机验收的能力一律标称未完成（`unit-tested` / `integration-tested` / `device-tested` / `production-ready` 四级）。
 
+## CI（按需运行）
+
+GitHub Actions 的 [ci 工作流](.github/workflows/ci.yml) 不再在 push / PR 时自动运行，与 whale-core 的按需测试方式保持一致。需要检查时打开 **Actions → ci → Run workflow**，选择：
+
+- `contracts`（默认，最轻量）：仅校验端云协议 Schema 和黄金示例。
+- `app`：先校验协议，再构建 Android Debug APK，执行 Flutter/Dart 与 Kotlin 单测。
+- `secret-scan`：只执行 Gitleaks 历史凭据扫描。
+- `all`：执行以上全部检查，建议用于准备合并重要功能或正式发行前。
+
+注意：**不自动运行不等于测试通过**。PR 合并和发布前需要手动运行适用检查，并保留结果；若仓库设置了 Required Status Checks，需要相应调整保护规则，避免等待不再自动触发的状态。
+
 ## 许可与致谢
 
 - 本仓库 © whale-mobile 作者们。

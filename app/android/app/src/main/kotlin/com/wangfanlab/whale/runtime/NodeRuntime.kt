@@ -99,6 +99,16 @@ class NodeRuntime private constructor(
 
     val safeActionModule: SafeActionModule = SafeActionModule(appContext)
 
+    /** 手机可信确认（AUTH-01）：challenge → 用户确认 → 签名回执。 */
+    val authConfirmModule: com.wangfanlab.whale.modules.authconfirm.AuthConfirmModule =
+        com.wangfanlab.whale.modules.authconfirm.AuthConfirmModule(
+            context = appContext,
+            identityProvider = { identity },
+            responder = { challengeId, approved, signature, reason ->
+                client.sendConfirmResponse(challengeId, approved, signature, reason)
+            },
+        )
+
     /** 眼镜 HUD 桥（GL-01；默认 NullTransport，雷鸟 iO 桥接通道待用户确认）。 */
     val glassesModule: com.wangfanlab.whale.modules.glasses.GlassesModule =
         com.wangfanlab.whale.modules.glasses.GlassesModule(appContext)
@@ -364,6 +374,25 @@ class NodeRuntime private constructor(
         event["kind"] = "state"
         event["state"] = WssClient.stateName(state)
         emitEvent(event)
+        writeStateSnapshot(state)
+    }
+
+    /** 调试/运维（OEM 无 logcat 时）：状态快照落私有文件（无敏感字段）。 */
+    private fun writeStateSnapshot(state: WssClient.State) {
+        try {
+            val dbg = (appContext.applicationInfo.flags and
+                    android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+            if (!dbg) return
+            val info = getStateInfo().toMutableMap()
+            info["state"] = WssClient.stateName(state)
+            info["ts"] = System.currentTimeMillis()
+            val json = info.entries.joinToString(",", prefix = "{", postfix = "}") { (k, v) ->
+                val key = "\"" + k + "\""
+                if (v is String) key + ":\"" + v + "\"" else "$key:$v"
+            }
+            java.io.File(appContext.filesDir, "node_state.json").writeText(json)
+        } catch (_: Throwable) {
+        }
     }
 
     override fun onActionRequest(payload: Map<String, Any?>) {
@@ -439,6 +468,18 @@ class NodeRuntime private constructor(
                 "kind" to "call_invite",
                 "session_id" to payload["session_id"],
                 "expires_at" to payload["expires_at"],
+            )
+        )
+    }
+
+    override fun onDeviceConfirmRequest(payload: Map<String, Any?>) {
+        authConfirmModule.onConfirmRequest(payload)
+        emitEvent(
+            mapOf(
+                "kind" to "confirm_request",
+                "challenge_id" to payload["challenge_id"],
+                "channel" to payload["channel"],
+                "scopes" to payload["scopes"],
             )
         )
     }

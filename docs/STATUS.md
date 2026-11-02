@@ -58,8 +58,12 @@
 - 尚未实现：Host 模块状态机完整 UI（A1 项，当前为最小测试页）、通知点击事件上行
 - 下一依赖任务：WM-07 Gate A
 
-### WM-07 — Phase I 真机验收（Gate A）
-- 状态：not_started（依赖 WM-04..06；设备矩阵见 docs/ARCHITECTURE.md §5）
+### WM-07 / GA-01（Issue #7）— Gate A 收口
+- 状态：**closed**（用户 2026-11-01 决定：24h 耗电暂缓，以现有证据收口）（2026-11-01 Magic8 Pro 已入网完成主矩阵；待 leaf5 24h 耗电基线读完即收口）
+- **Magic8 Pro（BKQ-AN10，生产非 Root）实测**：配对/审批/上线 ✓；通知 post executed ✓；通知监听全链（授权+系统绑定+白名单事件入 core，leaf5/nova 的固件不绑定问题在正式机不存在）✓；safe_action launch_app executed（unverified_no_usage_access 诚实标注）/https 深链 executed/微信与设置 scope_denied ✓；VoIP ring→answer→media ready(omni)→stopped ✓（经 N100 中继绕 tailnet ACL）；影子采集 attempts/unique/dup 统计 + IME 拦截 7 次真实触发 ✓；**关屏待机在线（应用启动管理白名单后）+ 整机重启自动恢复在线（无人工介入）** ✓
+- **关键运维结论（MagicOS/类 OEM）**：仅 FGS + deviceidle 白名单不够——必须「应用启动管理」手动三项全开，否则系统 CPU 冻结进程致 socket 死亡（state 文件与 core 双侧证据）；已写入部署 SOP
+- 调试通道：OEM 无 logcat 固件经 filesDir 快照文件观测（node_state.json / notifread_debug.log / capture_stats.json，仅 debug 包）
+- 待：leaf5 24h 耗电读数（采集中）；Doze 深睡矩阵按 MagicOS 白名单前提记录
 
 ### BG-01（Issue #2）— WSS/设备身份/离线队列脱离 Flutter Activity：NodeService
 - 状态：**device-tested**（2026-11-01，leaf5 真 core）
@@ -135,8 +139,9 @@
 - 与 #4 对接：事件经 WssClient 离线队列，payload 已应用层加密
 - 协议版本与兼容影响：无
 
-### EV-02（Issue #12）— 主动提醒闭环（手机侧完成度）
-- 状态：**mobile 部分 device-tested**（2026-11-01，nova 真 core）；Core 运行时自治接线待 whale-core 侧
+### EV-02（Issue #12）— 主动提醒闭环（已全链闭合）
+- 状态：**device-tested**（2026-11-01，nova 真 core 全链）
+- **全链实测**：nova 通知监听捕获「EV02闭环」事件 → core 落事件 → DeviceInitiativeAdapter（whale-core-dev 4b77ce6，规则存 kv config:device_initiative，默认关）→ 规则裁决 → 自动下发 phone.notification.post（幂等键=event_id）→ nova 通知栏出现「闭环验证」→ executed 回执；不含关键词的事件不触发（负例）
 - 具体完成：contracts/v1 action.request 增可选 correlation_id（校验器 18/18，示例同步）；whale-core-dev gateway/REST 透传（2e7082c，28 项设备测试过）；NotificationModule 执行后 provider_ref 回显 corr:<id>（审计链闭合）
 - **nova 实测（真 core dev）**：事件 device:event 落库 → POST action 带 correlation_id → executed → 回执 provider_ref=corr:sm-0000000000212 → core receipts 链可追
 - 诚实边界：Core 运行时自治决策接线（sensor_event→situation→rule→remind 的活路由与规则配置）属 whale-core 侧（其 #9 已闭于桥/测试层）；本项在 mobile 侧所需全部能力已就绪且真机验证
@@ -159,6 +164,16 @@
 - 诚实边界：ASR→LLM→TTS 为桥端模式（东京 server.py echo/agent/omni），手机侧经 mode 字段可见当前模式；话中工具调用的 scope 审批属 core 侧
 - 测试：既有 VoipLogic/NotificationLogic 单测全过（148/148）；nova 双向实测
 - 协议版本与兼容影响：无（call.state summary 文本扩展，字段不变）
+
+### AUTH-01（Issue #15）— 手机可信确认：一次性授权、审批回执与撤销
+- 状态：**device-tested**（2026-11-01，nova 真 core 三路径）
+- 具体完成：contracts/v1 minor（device.confirm.request/response 两消息类型 + schema + 黄金示例，校验 20/20）；`AuthConfirmModule`（结构/有效期/设备绑定校验；过期即拒；whale_confirm 高优通知 + ConfirmActivity 锁屏全屏确认；同意→Ed25519 签名 challenge_id → 回执；拒绝/超时 approved=false+reason；绝不默认批准）；WssClient 新增类型分发与 sendConfirmResponse；whale-core-dev 配套（2abdcee：gateway send_confirm_request/响应分发 + POST /devices/{id}/confirm 创建挑战→签名核验→原子核销签发租约；核心1681 测试全过）
+- **nova 实测（真 core）**：同意 → grant 签发（proof_method=device，max_uses=1）；拒绝 → 409 user_denied；不操作超时 → 409 expired（端侧到期自动按拒绝回执）
+- 纪律复核：已配对≠已确认（每挑战独立 nonce 一次核销）；群聊来源只展示不提权；撤销设备后网关拒绝所有帧
+- 协议版本与兼容影响：contracts/v1 minor（新消息类型，两端同步）
+
+### RELEASE-01（Issue #16）— Gate B/C 收口
+- 状态：**closed**（2026-11-01；验收记录 docs/RELEASE-GATE-BC.md；眼镜实物/24h 耗电为用户暂缓项）
 
 ---
 

@@ -1,0 +1,31 @@
+# 跨仓契约漂移校验（whale-mobile#34）——仅手动触发。
+# canonical 是本仓；core 为镜像。最终以同一批次两个候选 ref 联合验收。
+name: contract-sync
+
+on:
+  workflow_dispatch:
+    inputs:
+      mobile_ref:
+        description: "whale-mobile 候选 ref"
+        required: true
+        default: main
+      core_ref:
+        description: "whale-core 候选 ref"
+        required: true
+        default: main
+
+jobs:
+  drift-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: mobile
+          ref: ${{ inputs.mobile_ref }}
+      - uses: actions/checkout@v4
+        with:
+          repository: amwangfan/whale-core
+          ref: ${{ inputs.core_ref }}
+          path: core
+      - name: Compare contracts/v1 file by file
+        run: python3 mobile/scripts/contract_sync_check.py --a mobile --b core

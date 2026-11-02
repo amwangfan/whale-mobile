@@ -18,7 +18,7 @@
     ],
     "approval_ref": "01J0000000000000000000APRV",
     "expires_at": 1730000060000,
-    "idempotency_key": "idem-0001-4f7a-9c2e-01",
+    "idempotency_key": "idem-example-0001-demo",
     "correlation_id": "sm-0000000000211"
   }
 }

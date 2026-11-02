@@ -111,6 +111,15 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <!-- ==================== 可信确认（AUTH-01，Issue #15） ==================== -->
+        <activity
+            android:name="com.wangfanlab.whale.modules.authconfirm.ConfirmActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar" />
+
         <!-- ==================== 影子采集模块（SM-01，Issue #8；默认关） ==================== -->
         <!-- 影子模式：只统计截图成功率/延迟/重复率，不保存截图、不 OCR；
              与独立 ScreenMemo 采集互斥（conflict_standalone_screenmemo 自动跳过）。 -->

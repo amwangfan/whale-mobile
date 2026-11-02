@@ -88,6 +88,12 @@ class WssClient(
          * VoipModule 经此执行远端挂断（主线程回调）。
          */
         fun onCallHangup(payload: Map<String, Any?>) {}
+
+        /**
+         * 下行 device.confirm.request（AUTH-01；payload 见 schema）。
+         * 默认忽略（前向兼容）；AuthConfirmModule 经此接管（主线程回调）。
+         */
+        fun onDeviceConfirmRequest(payload: Map<String, Any?>) {}
     }
 
     /**
@@ -395,6 +401,7 @@ class WssClient(
             TYPE_SENSOR_ACK -> onSensorAckLocked(env)
             TYPE_CALL_INVITE -> onCallInviteLocked(env)
             TYPE_CALL_HANGUP -> onCallHangupLocked(env)
+            TYPE_DEVICE_CONFIRM_REQUEST -> onDeviceConfirmRequestLocked(env)
             TYPE_ERROR -> onErrorLocked(env)
             else -> Log.d(TAG, "忽略未知/暂不支持的消息类型: ${env.type}")
         }
@@ -593,6 +600,34 @@ class WssClient(
     }
 
     /** 下行 call.hangup：远端结束会话；分发消费方挂断本地连接。 */
+    /** 下行 device.confirm.request：结构校验后交消费方（challenge_id 必填）。 */
+    private fun onDeviceConfirmRequestLocked(env: Envelope) {
+        val challengeId = env.payload["challenge_id"] as? String ?: run {
+            Log.w(TAG, "device.confirm.request 缺少 challenge_id，忽略")
+            return
+        }
+        Log.i(TAG, "device.confirm.request challenge=$challengeId")
+        postMain { listener.onDeviceConfirmRequest(env.payload) }
+    }
+
+    /** 上行 device.confirm.response（AUTH-01）。 */
+    fun sendConfirmResponse(
+        challengeId: String,
+        approved: Boolean,
+        signature: String? = null,
+        reason: String? = null,
+    ) {
+        executor.execute {
+            val payload = LinkedHashMap<String, Any?>()
+            payload["challenge_id"] = challengeId
+            payload["approved"] = approved
+            if (approved && signature != null) payload["signature"] = signature
+            if (!approved && reason != null) payload["reason"] = reason
+            payload["responded_at"] = System.currentTimeMillis()
+            sendEnvelopeLocked(TYPE_DEVICE_CONFIRM_RESPONSE, payload)
+        }
+    }
+
     private fun onCallHangupLocked(env: Envelope) {
         val sessionId = env.payload["session_id"] as? String ?: run {
             Log.w(TAG, "call.hangup 缺少 session_id，忽略")
@@ -743,6 +778,8 @@ class WssClient(
         const val TYPE_CALL_ANSWER = "call.answer"
         const val TYPE_CALL_HANGUP = "call.hangup"
         const val TYPE_CALL_STATE = "call.state"
+        const val TYPE_DEVICE_CONFIRM_REQUEST = "device.confirm.request"
+        const val TYPE_DEVICE_CONFIRM_RESPONSE = "device.confirm.response"
         const val TYPE_ERROR = "error"
 
         /** §5 V1 能力全集（端侧白名单，D7）。 */

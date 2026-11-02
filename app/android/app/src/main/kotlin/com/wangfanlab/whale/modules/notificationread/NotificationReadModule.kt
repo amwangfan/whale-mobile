@@ -43,6 +43,8 @@ class NotificationReadModule(
         resolveAppLabel(context.applicationContext, pkg)
     },
 ) {
+    private val appContext: Context = context.applicationContext
+
     init {
         // 静态钩子：service 回调线程不定，decider/deduper 内部线程安全。
         // SEC-02：注册前先回放进程早期（钩子就绪前）缓冲的事件，保证不丢。
@@ -57,6 +59,7 @@ class NotificationReadModule(
     }
 
     private fun handle(raw: WhaleNotificationListenerService.RawNotification) {
+        debugLog("recv pkg=${raw.packageName} title_len=${raw.title.length}")
         val snapshot = NotifSnapshot(
             packageName = raw.packageName,
             appLabel = labelResolver(raw.packageName),
@@ -67,8 +70,10 @@ class NotificationReadModule(
             hasProgress = raw.hasProgress,
         )
         when (val d = decider.onNotification(snapshot)) {
-            is NotifReadDecision.Drop ->
+            is NotifReadDecision.Drop -> {
                 Log.d(TAG, "通知丢弃(${d.reason}): ${raw.packageName}")
+                debugLog("drop ${d.reason} pkg=${raw.packageName}")
+            }
 
             is NotifReadDecision.Emit -> {
                 Log.i(TAG, "通知事件: ${d.summary.take(40)}…")
@@ -76,6 +81,21 @@ class NotificationReadModule(
             }
         }
     }
+
+    private fun debugLog(line: String) {
+        try {
+            val dbg = (appContextForLog.applicationInfo.flags and
+                    android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+            if (!dbg) return
+            java.io.File(appContextForLog.filesDir, "notifread_debug.log")
+                .appendText("${System.currentTimeMillis()} $line\n")
+        } catch (_: Throwable) {
+        }
+    }
+
+    private val appContextForLog: Context
+        get() = appContext
+
 
     companion object {
         private const val TAG = "WhaleNotifRead"
@@ -195,6 +215,17 @@ class WhaleNotificationListenerService : NotificationListenerService() {
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         val hook = sNotificationHook
+        // MagicOS 等无 logcat 固件的观测通道（仅 debug 包；只记包名/计数，不记内容）
+        try {
+            val dbg = (applicationInfo.flags and
+                    android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+            if (dbg) {
+                java.io.File(filesDir, "notifread_debug.log").appendText(
+                    "${System.currentTimeMillis()} svc_recv pkg=${sbn.packageName} hook=${hook != null}\n",
+                )
+            }
+        } catch (_: Throwable) {
+        }
         try {
             val n = sbn.notification ?: return
             // 脱敏：仅 EXTRA_TITLE；正文（EXTRA_TEXT*）/tickerText 一律不读。
