@@ -109,24 +109,24 @@ class VoipModule(
     /** WssClient executor 线程调用；同步执行，经 reply 回终态（executed/failed）。 */
     override fun execute(
         payload: Map<String, Any?>,
-        reply: (state: String, errorCode: String?, providerRef: String?) -> Unit,
+        reply: (state: String, errorCode: String?, providerRef: String?, result: Map<String, Any?>?) -> Unit,
     ) {
         @Suppress("UNCHECKED_CAST")
         val args = payload["args"] as? Map<String, Any?>
         when (val decision = decider.onRequest(args)) {
             is RingDecision.Reject -> {
                 Log.w(TAG, "phone.call.ring 校验未通过: ${decision.errorCode}")
-                reply("failed", decision.errorCode, null)
+                reply("failed", decision.errorCode, null, null)
             }
 
             is RingDecision.Execute -> try {
                 tracker.bindSession(null) // action 触发的响铃无 call.invite 会话
                 ringer(decision.spec)
-                reply("executed", null, null)
+                reply("executed", null, null, null)
             } catch (t: Throwable) {
                 Log.e(TAG, "phone.call.ring 执行异常", t)
                 FileLog.e("ring execute", t)
-                reply("failed", "internal", null)
+                reply("failed", "internal", null, null)
             }
         }
     }

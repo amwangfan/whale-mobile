@@ -453,6 +453,49 @@ class TransportBridge(
                     }.start()
                 }
 
+                // ---- 设备自主体（core#58；默认全关） ----
+
+                "getAgentStatus" -> result.success(
+                    mapOf(
+                        "enabled" to com.wangfanlab.whale.modules.agent.AgentModule
+                            .isEnabled(appContext),
+                        "root_authorized" to com.wangfanlab.whale.modules.agent.AgentModule
+                            .isRootAuthorized(appContext),
+                        "estop" to com.wangfanlab.whale.modules.agent.AgentModule
+                            .isEstop(appContext),
+                    )
+                )
+
+                "setAgentEnabled" -> {
+                    val enabled = call.argument<Boolean>("enabled") ?: false
+                    appContext.getSharedPreferences("whale_modules", Context.MODE_PRIVATE)
+                        .edit().putBoolean(
+                            com.wangfanlab.whale.modules.agent.AgentModule.KEY_ENABLED, enabled,
+                        ).apply()
+                    result.success(true)
+                }
+
+                "setAgentRootAuthorized" -> {
+                    val enabled = call.argument<Boolean>("enabled") ?: false
+                    appContext.getSharedPreferences("whale_modules", Context.MODE_PRIVATE)
+                        .edit().putBoolean(
+                            com.wangfanlab.whale.modules.agent.AgentModule.KEY_ROOT_AUTH, enabled,
+                        ).apply()
+                    result.success(true)
+                }
+
+                /** 紧急停止：销毁会话 + 置位（之后所有 agent 请求立即拒绝）。 */
+                "agentEmergencyStop" -> {
+                    com.wangfanlab.whale.modules.agent.AgentModule
+                        .emergencyStop(appContext, runtime.agentModule.shell)
+                    result.success(true)
+                }
+
+                "agentClearEstop" -> {
+                    com.wangfanlab.whale.modules.agent.AgentModule.clearEstop(appContext)
+                    result.success(true)
+                }
+
                 /** SM-03：数据源切换（mcp|builtin；builtin 前置校验不过返回 false）。 */
                 "setCaptureDataSource" -> {
                     val source = call.argument<String>("source")

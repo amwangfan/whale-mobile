@@ -99,6 +99,10 @@ class NodeRuntime private constructor(
 
     val safeActionModule: SafeActionModule = SafeActionModule(appContext)
 
+    /** 设备自主体（core#58）：UI 控制/观察/Root Shell；默认全关。 */
+    val agentModule: com.wangfanlab.whale.modules.agent.AgentModule =
+        com.wangfanlab.whale.modules.agent.AgentModule(appContext)
+
     /** 手机可信确认（AUTH-01）：challenge → 用户确认 → 签名回执。 */
     val authConfirmModule: com.wangfanlab.whale.modules.authconfirm.AuthConfirmModule =
         com.wangfanlab.whale.modules.authconfirm.AuthConfirmModule(
@@ -149,6 +153,15 @@ class NodeRuntime private constructor(
         )
         registerActionExecutor(
             com.wangfanlab.whale.modules.glasses.GlassesModule.CAPABILITY_DISMISS, glassesModule,
+        )
+        registerActionExecutor(
+            com.wangfanlab.whale.modules.agent.AgentLogic.CAP_CONTROL, agentModule,
+        )
+        registerActionExecutor(
+            com.wangfanlab.whale.modules.agent.AgentLogic.CAP_OBSERVE, agentModule,
+        )
+        registerActionExecutor(
+            com.wangfanlab.whale.modules.agent.AgentLogic.CAP_SHELL, agentModule,
         )
     }
 
@@ -433,8 +446,30 @@ class NodeRuntime private constructor(
 
     override fun onSensorQuery(payload: Map<String, Any?>): Boolean {
         val requestId = payload["request_id"] as? String ?: return false
+        val operation0 = payload["operation"] as? String ?: ""
+        // core#58：agent 输出拉取（与屏幕数据源无关，最先路由）
+        if (operation0 == "device.agent.output.read") {
+            if (isAllPaused(appContext)) {
+                client.sendSensorResult(requestId, "paused", emptyList(), false, "agent.local")
+                return true
+            }
+            @Suppress("UNCHECKED_CAST")
+            val filters = payload["filters"] as? Map<String, Any?> ?: emptyMap()
+            val ref = (filters["output_ref"] as? String)
+                ?: (filters["image_refs"] as? List<*>)?.filterIsInstance<String>()?.firstOrNull()
+            if (ref.isNullOrBlank()) {
+                client.sendSensorResult(requestId, "error",
+                    listOf(mapOf("error" to "missing_ref")), false, "agent.local")
+                return true
+            }
+            client.sendSensorResult(
+                requestId, "ok",
+                listOf(agentModule.readOutput(ref)), false, "agent.local",
+            )
+            return true
+        }
         // SM-03：数据源为 builtin 且操作受支持 → 原生直接回答（先于 Dart 委托）
-        val operation = payload["operation"] as? String ?: ""
+        val operation = operation0
         if (!isAllPaused(appContext) &&
             com.wangfanlab.whale.modules.capture.CaptureModule.dataSource(appContext) ==
             com.wangfanlab.whale.modules.capture.CaptureModule.SOURCE_BUILTIN &&

@@ -105,7 +105,7 @@ class WssClient(
     interface ActionExecutor {
         fun execute(
             payload: Map<String, Any?>,
-            reply: (state: String, errorCode: String?, providerRef: String?) -> Unit,
+            reply: (state: String, errorCode: String?, providerRef: String?, result: Map<String, Any?>?) -> Unit,
         )
     }
 
@@ -261,6 +261,7 @@ class WssClient(
         executedAt: Long? = null,
         errorCode: String? = null,
         providerRef: String? = null,
+        result: Map<String, Any?>? = null,
     ) {
         executor.execute {
             // SEC-03：业务层（Dart）终态也落幂等表，重连重放可返回真实终态。
@@ -275,6 +276,7 @@ class WssClient(
             }
             if (errorCode != null && state == "failed") payload["error_code"] = errorCode
             if (providerRef != null) payload["provider_ref"] = providerRef
+            if (result != null) payload["result"] = result
             sendEnvelopeLocked(TYPE_ACTION_RECEIPT, payload)
         }
     }
@@ -564,7 +566,8 @@ class WssClient(
         // 有执行器：received 确认收到后同步执行，由执行器回终态（executed/failed）。
         receipt("received")
         inFlightActionKeys.add(idemKey)
-        val reply: (String, String?, String?) -> Unit = { state, errorCode, providerRef ->
+        val reply: (String, String?, String?, Map<String, Any?>?) -> Unit =
+            { state, errorCode, providerRef, result ->
             executor.execute {
                 inFlightActionKeys.remove(idemKey)
                 if (state == "executed" || state == "failed" || state == "unknown") {
@@ -573,7 +576,7 @@ class WssClient(
                 val terminalAt =
                     if (state == "executed" || state == "failed") System.currentTimeMillis() else null
                 sendActionReceipt(actionId, state, executedAt = terminalAt, errorCode = errorCode,
-                    providerRef = providerRef)
+                    providerRef = providerRef, result = result)
                 postMain { listener.onActionTerminal(actionId, capability, state, errorCode) }
             }
         }
@@ -581,7 +584,7 @@ class WssClient(
             actionExecutor.execute(p, reply)
         } catch (t: Throwable) {
             Log.e(TAG, "action 执行器异常 capability=$capability action_id=$actionId", t)
-            reply("failed", "internal", null)
+            reply("failed", "internal", null, null)
         }
     }
 
@@ -789,6 +792,8 @@ class WssClient(
             "phone.call.ring", "phone.call.audio", "phone.device.safe_action",
             // V1.1（GL-01）：眼镜 HUD（桥不可达时端侧降级手机通知）
             "glasses.card.show", "glasses.card.update", "glasses.card.dismiss",
+            // V1.1（core#58）：设备自主体
+            "device.agent.control", "device.agent.observe", "device.agent.shell",
         )
 
         fun stateName(s: State): String = when (s) {

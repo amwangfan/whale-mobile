@@ -172,6 +172,11 @@
 - 纪律复核：已配对≠已确认（每挑战独立 nonce 一次核销）；群聊来源只展示不提权；撤销设备后网关拒绝所有帧
 - 协议版本与兼容影响：contracts/v1 minor（新消息类型，两端同步）
 
+### AGENT（core#58）— 设备自主体（Root 手机自主 Shell 与应用控制）
+- 状态：**unit-tested + 部分 device-tested**（2026-11-03）；Bilibili 验收待 leaf5 唤醒
+- 具体完成：contracts/v1 minor（能力枚举 device.agent.control/observe/shell + action.receipt.result{summary,output_ref} + sensor.query 增 device.agent.output.read + error_code 增 timeout；校验 20/20）；AgentLogic 校验链（两级开关/estop/暂停/频控/参数形状，JUnit 8 例）；AgentShell（su 持续会话/超时/输出尾部 64KB/并发 ≤3/estop 销毁）；AgentModule 执行器（control 经 root input/am；observe 经 uiautomator/screencap 帧预算压缩；readOutput 不透明引用回读）；NodeRuntime 注册 + output.read 路由；桥接开关 getAgentStatus/setAgentEnabled/setAgentRootAuthorized/agentEmergencyStop/agentClearEstop
+- 联调发现：dev core 500 盲因（dispatch 吞异常无日志 → 已修）+ tailscale serve 8192 与网关 0.0.0.0:8192 冲突（WHALE_DEVICE_RELAY_HOST/PORT 环境变量覆盖，dev 实例改 127.0.0.1:8182）；nova GSI 的 su 对 app uid 不可用（SELinux untrusted_app 无法转 magisk context）——root shell 只能在 leaf5/Magisk 正常机验证
+- 待 leaf5 唤醒：Bilibili 启动/搜索/浏览/播放/暂停/进度/退出全链
 ### RELEASE-01（Issue #16）— Gate B/C 收口
 - 状态：**closed**（2026-11-01；验收记录 docs/RELEASE-GATE-BC.md；眼镜实物/24h 耗电为用户暂缓项）
 
