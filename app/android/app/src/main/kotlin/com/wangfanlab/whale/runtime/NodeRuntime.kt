@@ -99,6 +99,10 @@ class NodeRuntime private constructor(
 
     val safeActionModule: SafeActionModule = SafeActionModule(appContext)
 
+    /** 眼镜 HUD 桥（GL-01；默认 NullTransport，雷鸟 iO 桥接通道待用户确认）。 */
+    val glassesModule: com.wangfanlab.whale.modules.glasses.GlassesModule =
+        com.wangfanlab.whale.modules.glasses.GlassesModule(appContext)
+
     /** VoIP 模块：init 即触碰，注册 FakeConnectionService.CallStateListener 钩子。 */
     val voipModule: VoipModule = VoipModule(
         appContext,
@@ -127,6 +131,15 @@ class NodeRuntime private constructor(
         registerActionExecutor(NotificationModule.CAPABILITY, notificationModule)
         registerActionExecutor(VoipModule.CAPABILITY_RING, voipModule)
         registerActionExecutor(SafeActionModule.CAPABILITY, safeActionModule)
+        registerActionExecutor(
+            com.wangfanlab.whale.modules.glasses.GlassesModule.CAPABILITY_SHOW, glassesModule,
+        )
+        registerActionExecutor(
+            com.wangfanlab.whale.modules.glasses.GlassesModule.CAPABILITY_UPDATE, glassesModule,
+        )
+        registerActionExecutor(
+            com.wangfanlab.whale.modules.glasses.GlassesModule.CAPABILITY_DISMISS, glassesModule,
+        )
     }
 
     // ------------------------------------------------------------- 生命周期
@@ -169,9 +182,9 @@ class NodeRuntime private constructor(
             Log.w(TAG, "恢复评估[$why]：缺少已存网关地址，放弃")
             return false
         }
-        val caps = prefs.getString(KEY_GATEWAY_CAPS, null)
-            ?.split(",")?.filter { it.isNotBlank() }
-            ?: WssClient.V1_CAPABILITIES.toList()
+        // 能力集随应用版本升级漂移（如 V1.1 新增 glasses.*）：恢复时总是上报
+        // 当前全集，由 core 按设备 scopes 收窄；持久化只保留 URL。
+        val caps = WssClient.V1_CAPABILITIES.toList()
         Log.i(TAG, "恢复评估[$why]：发起重连 url=$url")
         if (com.wangfanlab.whale.transport.TransportBridge.isBgServiceEnabled(appContext)) {
             NodeService.start(appContext)

@@ -143,6 +143,15 @@
 - 负例复核：一键暂停/模块关/撤销 fail-closed 由 BG/SEC 系列覆盖
 - 协议版本与兼容影响：contracts/v1 minor（可选字段）
 
+### GL-01（Issue #13）— 眼镜 HUD 桥（模块化 + 降级路径）
+- 状态：**device-tested（降级路径）**（2026-11-01，nova 真 core）；真实眼镜联动待硬件
+- 具体完成：`modules/glasses/`（GlassesLogic 纯逻辑：title≤40/body≤120/ttl 3s-300s/owner_sensitive 不上镜/6 次每分频控/暂停与模块 fail-closed；GlassesModule 执行器 + 可插拔 GlassesTransport（当前 NullTransport）；无桥降级手机通知 + provider_ref=degraded:phone_notification，转发成功标 forwarded_no_display_ack 绝不伪报 shown）；V1_CAPABILITIES/Dart 双侧能力表同步 glasses.card.*；PROTOCOL.md V1.1 候选记录
+- **nova 实测（真 core）**：show 无桥 → executed + degraded:phone_notification（手机通知可见）；owner_sensitive → failed/scope_denied；dismiss 无桥 → failed/unavailable
+- 联调修复：能力枚举三处 schema（hello/hello_ack/action.request）+ BG-02 恢复路径能力漂移（恢复改报当前全集，core 按 scopes 收窄）+ Dart/原生双能力表同步
+- 测试：JUnit 148/148（GlassesLogicTest 6 例）；flutter 89/89
+- 待硬件：雷鸟 iO 实桥（Turbo-IO/厂商 API 通道待用户确认）与真机 shown 级验收
+- 协议版本与兼容影响：contracts/v1 minor（能力枚举扩充，向后兼容）
+
 ---
 
 ## 阶段二（B 系列，Gate A 后启动）
