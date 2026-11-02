@@ -152,6 +152,14 @@
 - 待硬件：雷鸟 iO 实桥（Turbo-IO/厂商 API 通道待用户确认）与真机 shown 级验收
 - 协议版本与兼容影响：contracts/v1 minor（能力枚举扩充，向后兼容）
 
+### VOICE-01（Issue #14）— VoIP Realtime 稳定化与可见降级
+- 状态：**device-tested**（2026-11-01，nova 真 core + 东京 omni 桥）
+- 具体完成：AudioBridge 媒体状态机（connecting/ready(mode 从桥端 HELLO 解析 omni|agent|echo)/retrying/failed/stopped）经 MediaStateListener → call.state 事件上行；AUTH_FAIL 即 failed；重试耗尽 → 媒体失败 → 自动挂断（不留死通话）+ 用户通知「语音桥不可用」；FakeConnectionService 通话期间 phoneCall 类型前台服务（API 29+ 带类型，ended 退出）
+- **nova 实测**：正常链 ringing→answered→media connecting→ready(mode=omni, voice=Tina, tools=1)→ended(duration=20s) 全事件序列入 core；桥死端口 → retrying×8 → failed → 自动挂断 call.ended + 通知可见 + dumpsys 确认麦克风 0 残留会话
+- 诚实边界：ASR→LLM→TTS 为桥端模式（东京 server.py echo/agent/omni），手机侧经 mode 字段可见当前模式；话中工具调用的 scope 审批属 core 侧
+- 测试：既有 VoipLogic/NotificationLogic 单测全过（148/148）；nova 双向实测
+- 协议版本与兼容影响：无（call.state summary 文本扩展，字段不变）
+
 ---
 
 ## 阶段二（B 系列，Gate A 后启动）

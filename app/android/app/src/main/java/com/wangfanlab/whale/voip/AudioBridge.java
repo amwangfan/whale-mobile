@@ -22,6 +22,21 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public final class AudioBridge {
     private static final String TAG = "WhaleVoip";
+
+    /** VOICE-01：媒体状态监听（VoipModule 注入；state 见 notifyMedia 注释）。 */
+    public interface MediaStateListener {
+        /** state: connecting / ready / retrying / failed / stopped；mode 为桥端报告的模式（omni/agent/echo/unknown）。 */
+        void onMediaState(String state, String mode, String detail);
+    }
+
+    /** 进程级钩子（与 FakeConnectionService.sCallStateListener 同款模式）。 */
+    public static volatile MediaStateListener sMediaListener;
+
+    private static void notifyMedia(String state, String mode, String detail) {
+        MediaStateListener l = sMediaListener;
+        if (l == null) return;
+        try { l.onMediaState(state, mode, detail); } catch (Throwable t) { Log.w(TAG, "media listener", t); }
+    }
     public static final String DEFAULT_HOST = "127.0.0.1";
     public static final int DEFAULT_PORT = 18799;
     public static final int SAMPLE_RATE = 16000;
@@ -149,6 +164,7 @@ public final class AudioBridge {
 
     private void startInternal() {
         if (!running.compareAndSet(false, true)) return;
+        notifyMedia("connecting", "unknown", host + ":" + port);
         worker = new Thread(new Runnable() {
             @Override public void run() { runLoop(); }
         }, "NovaAudioBridge");
@@ -159,6 +175,7 @@ public final class AudioBridge {
 
     private void stopInternal() {
         running.set(false);
+        notifyMedia("stopped", "unknown", "");
         closeQuietly();
         if (worker != null) {
             try { worker.join(1500); } catch (InterruptedException ignored) {}
@@ -175,10 +192,15 @@ public final class AudioBridge {
                 connectAndStream();
             } catch (Throwable t) {
                 FileLog.e("AudioBridge attempt " + tries, t);
+                notifyMedia("retrying", "unknown", "attempt=" + tries + " err=" + t.getClass().getSimpleName());
             }
             closeQuietly();
             if (!running.get()) break;
             try { Thread.sleep(400L * tries); } catch (InterruptedException ignored) {}
+        }
+        if (running.get()) {
+            // VOICE-01：重试耗尽 = 媒体失败（由 VoipModule 降级/挂断，不留死通话）
+            notifyMedia("failed", "unknown", "retry_exhausted");
         }
     }
 
@@ -250,7 +272,14 @@ public final class AudioBridge {
                         if (type == TYPE_PCM && player != null) {
                             player.write(payload, 0, payload.length);
                         } else if (type == TYPE_CTRL) {
-                            Log.i(TAG, "ctrl from box: " + new String(payload, "UTF-8"));
+                            String line = new String(payload, "UTF-8");
+                            Log.i(TAG, "ctrl from box: " + line);
+                            // VOICE-01：桥端 HELLO 携带 mode（omni/agent/echo），首个握手即上报
+                            if (line.startsWith("HELLO")) {
+                                notifyMedia("ready", parseMode(line), line);
+                            } else if (line.startsWith("AUTH_FAIL")) {
+                                notifyMedia("failed", "unknown", "auth_fail");
+                            }
                         }
                     }
                 } catch (Throwable t) {
@@ -274,6 +303,14 @@ public final class AudioBridge {
                 throw new IOException("AudioRecord read " + n);
             }
         }
+    }
+
+    /** 从桥端 HELLO 行解析 mode（"HELLO box mode=omni sample=16000 ..."）。 */
+    static String parseMode(String helloLine) {
+        for (String tok : helloLine.split(" ")) {
+            if (tok.startsWith("mode=")) return tok.substring(5);
+        }
+        return "unknown";
     }
 
     private static synchronized void writeFrame(DataOutputStream out, byte type, byte[] payload)
