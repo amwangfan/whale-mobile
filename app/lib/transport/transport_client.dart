@@ -376,6 +376,31 @@ class TransportClient {
   Future<void> openNotificationListenerSettings() =>
       _methods.invokeMethod<void>('openNotificationListenerSettings');
 
+  // ---- 设备自主体（core#58；默认全关） ----
+
+  /// 状态：enabled/root_authorized/estop。
+  Future<Map<String, dynamic>> getAgentStatus() async =>
+      Map<String, dynamic>.from(await _methods
+              .invokeMethod<Map<dynamic, dynamic>>('getAgentStatus') ??
+          <String, dynamic>{});
+
+  Future<void> setAgentEnabled(bool enabled) => _methods
+      .invokeMethod<void>('setAgentEnabled', <String, dynamic>{'enabled': enabled});
+
+  /// 「持续 Root Shell 授权」——control/observe/shell 全部走 root 路径，
+  /// 未授权一律 scope_denied。
+  Future<void> setAgentRootAuthorized(bool enabled) =>
+      _methods.invokeMethod<void>(
+          'setAgentRootAuthorized', <String, dynamic>{'enabled': enabled});
+
+  /// 紧急停止：销毁全部会话/在途命令，之后 agent 请求一律拒绝。
+  Future<void> agentEmergencyStop() =>
+      _methods.invokeMethod<void>('agentEmergencyStop');
+
+  /// 解除紧急停止（用户明确操作）。
+  Future<void> agentClearEstop() =>
+      _methods.invokeMethod<void>('agentClearEstop');
+
   /// SM-01 影子采集模块状态（enabled/granted/conflict/running/stats）。
   Future<Map<String, dynamic>> getCaptureStatus() async =>
       Map<String, dynamic>.from(await _methods

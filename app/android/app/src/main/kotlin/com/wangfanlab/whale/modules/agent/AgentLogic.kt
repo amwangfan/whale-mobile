@@ -34,7 +34,9 @@ object AgentLogic {
         if (estop) return Decision.Reject("unavailable")
         if (allPaused) return Decision.Reject("unavailable")
         if (!moduleEnabled) return Decision.Reject("module_disabled")
-        if (capability == CAP_SHELL && !rootAuthorized) return Decision.Reject("scope_denied")
+        // control/observe 的实现路径也是 Root Shell（su input/am/uiautomator/screencap），
+        // 因此同样要求「持续 Root 授权」——否则 UI 参数会成为绕过独立 Shell 授权的入口。
+        if (!rootAuthorized) return Decision.Reject("scope_denied")
 
         val perMin = when (capability) {
             CAP_CONTROL -> CONTROL_PER_MIN
@@ -52,17 +54,23 @@ object AgentLogic {
                 if (action !in CONTROL_ACTIONS) return Decision.Reject("invalid_message")
                 when (action) {
                     "tap", "swipe" -> {
-                        // 坐标校验：x/y 必须为非负数
-                        val nums = listOf("x", "y", "x2", "y2")
-                            .mapNotNull { k -> (a[k] as? Number)?.toInt() }
-                        if (action == "tap" && nums.size < 2) {
-                            return Decision.Reject("invalid_message")
+                        // 坐标校验：必须为 Int 且非负有界（防参数注入）
+                        val coordKeys = if (action == "tap") {
+                            listOf("x", "y")
+                        } else {
+                            listOf("x", "y", "x2", "y2")
                         }
-                        if (action == "swipe" && nums.size < 4) {
-                            return Decision.Reject("invalid_message")
+                        for (k in coordKeys) {
+                            val v = (a[k] as? Number)?.toInt()
+                                ?: return Decision.Reject("invalid_message")
+                            if (v < 0 || v > 10000) return Decision.Reject("invalid_message")
                         }
-                        if (nums.any { it < 0 || it > 10000 }) {
-                            return Decision.Reject("invalid_message")
+                        // swipe 时长同样必须是有界 Int（原始值会插进 shell 命令行）
+                        if (action == "swipe") {
+                            val dur = (a["duration_ms"] as? Number)?.toInt()
+                            if (dur != null && (dur < 0 || dur > 10_000)) {
+                                return Decision.Reject("invalid_message")
+                            }
                         }
                     }
                     "input_text" -> {
