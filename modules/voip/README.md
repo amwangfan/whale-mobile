@@ -28,15 +28,52 @@ JDK 17 源/目标兼容。
   非 `127.0.0.1/localhost` 的明文 `http://` 会被客户端拒绝（须 HTTPS/隧道）；默认地址
   `http://127.0.0.1:18799`（`SignalPrefs.DEFAULT_URL`）。
 - 事件：新 hub `{ok, messages:[...]}`，旧 mock 单事件 `{cmd:...}`；`action=ring` 携带
-  `number/name/bridge_host/bridge_port`，`hangup` 挂断；`timeout/hello/pong/keepalive` 为心跳。
+  `number/name`，`hangup` 挂断；`timeout/hello/pong/keepalive` 为心跳。
+  远端 `bridge_host/bridge_port` 一律忽略，不能覆盖或持久化本地端点（协议 §4）。
 - 404 回退旧路径 `GET /wait?device={id}&timeout=55`（box mock）。
 
 ### 音频桥（AudioBridge，TCP，默认 127.0.0.1:18799）
 
 - 帧格式：`[u32 BE length][u8 type][payload]`；`type 0` = PCM s16le mono 16kHz，
   `type 1` = 控制 UTF-8 文本。
-- 连接后若设 token 先发 `AUTH {token}`，再发 `HELLO nova sample=16000`；上行 20ms 帧，
-  下行 PCM 直写 AudioTrack。断线指数退避重连（≤8 次）。
+- 先发 `AUTH {BRIDGE_TOKEN}`，再发 `HELLO nova sample=16000`；只有明确收到 `AUTH_OK`
+  后才创建/启动录音与播放、发送 PCM。握手读超时 8 秒，最多 8 个控制帧、每帧 ≤4096 字节；
+  兼容 `AUTH_OK` 在前以及 `HELLO` 在前的响应顺序，但 `HELLO` 本身不是鉴权成功。
+  `AUTH_FAIL`、未知控制响应、错误帧、EOF/超时均在开麦前拒绝（走既有有界重试）。
+  上行 20ms 帧，下行 PCM 直写 AudioTrack。断线指数退避重连（≤8 次）。
+- **独立媒体凭据必填**：来自 `BridgePrefs` 的 app-private `nova_bridge/media_token`，
+  与 `nova_signal/token`（`SIGNAL_TOKEN`）、WSS 设备身份完全分开。缺少/清除媒体 token 时，
+  在建 socket / 开麦前安全拒绝；不读取、不迁移、不静默回退信令 token。
+- 主宿主在模块总览的 VoIP 卡配置「PCM 桥地址 / 端口 / 独立媒体 BRIDGE_TOKEN」，填写 token
+  后点保存。密码框不回显旧 token，留空保存保留旧值；「清除媒体凭据」显式清空。
+  Legacy APK 在 Bootstrap 的「音频桥」对话框配置同样的本地凭据；留空保留，重置按钮同时清除。
+  两个 APK 的私有存储互不共享，须分别配置。token 不含空白/控制字符，最长 4096 字符。
+- 本地 `getVoipBridgeConfig` 仅返回 `host/port/tokenConfigured`；`setVoipBridgeConfig`
+  可选 `token`，缺字段保留，空字符串清除。日志不包含凭据值或长度，旧值不返回 Flutter。
+  已在通话中的连接不会因编辑自动重连/撤销，修改作用于下一次媒体启动；需要立即停止时先挂断。
+- 媒体连接最终只读取本地 `BridgePrefs` 端点，调用参数/Intent extras 也不能改变凭据接收者。
+  若升级前曾被旧信令覆盖地址，须在本地重新核对并保存可信端点；不自动信任或迁移历史远端值。
+- 服务端仍使用其独立 `BRIDGE_TOKEN`。即使服务端允许 tokenless loopback 开发模式，客户端也
+  不默认匿名：需显式设置一对开发媒体 token；两类 token 可且应不同。TCP 本身不加密，仍须使用
+  可信本机反向隧道/受控私网，不能把 AUTH 直接暴露到公网；本次不改媒体传输或服务部署。
+
+### 离线安全回归（不需要真机或真实服务）
+
+在仓库根目录执行：
+
+```bash
+python3 -m unittest discover -s modules/voip/tests -v
+cd app
+/opt/flutter/bin/flutter test --no-pub test/voip_media_config_test.dart test/widget_test.dart
+```
+
+首项仅依赖 Python stdlib + JDK，用临时 Android fakes 编译两份真实 `BridgePrefs/AudioBridge`，
+并原样编译 legacy ring handler；仅与测试进程内回环 mock TCP 桥交互。覆盖独立 token 持久化、
+`SIGNAL_TOKEN != BRIDGE_TOKEN` 的实际 AUTH 帧、缺失/清除拒绝且不开麦、token 格式拒绝、
+本地端点强制选择、AUTH_OK/HELLO 两种顺序、错误鉴权/HELLO-only/EOF 不开麦、
+恶意远端 ring 不改变端点/凭据。Flutter 测试 mock MethodChannel，覆盖
+读取仅含配置状态、端点编辑保留 token、显式替换/清除。它们不证明 Android 权限/Telecom/
+音频硬件行为或服务端拒绝行为；本次没有真机、真实 QQ/服务、secrets 访问或部署推送。
 
 ### 本机广播 action（RingReceiver，**exported=false**）
 

@@ -353,6 +353,7 @@ class TransportBridge(
                     mapOf(
                         "host" to BridgePrefs.getHost(appContext),
                         "port" to BridgePrefs.getPort(appContext),
+                        "tokenConfigured" to BridgePrefs.getToken(appContext).isNotEmpty(),
                     )
                 )
 
@@ -362,6 +363,16 @@ class TransportBridge(
                         ?: BridgePrefs.DEFAULT_PORT
                     if (host.isBlank() || host.length > 255 || port !in 1..65535) {
                         return result.error("bad_args", "非法 bridge host/port", null)
+                    }
+                    // Missing token preserves it; explicit empty clears it. Never return/log it.
+                    if (call.hasArgument("token")) {
+                        val token = call.argument<String>("token")
+                            ?: return result.error("bad_args", "非法 media token", null)
+                        try {
+                            BridgePrefs.setToken(appContext, token)
+                        } catch (_: IllegalArgumentException) {
+                            return result.error("bad_args", "非法 media token", null)
+                        }
                     }
                     BridgePrefs.set(appContext, host.trim(), port)
                     result.success(true)

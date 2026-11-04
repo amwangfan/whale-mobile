@@ -92,6 +92,7 @@ class OfflineQueue(
               capability     TEXT NOT NULL,
               terminal_state TEXT,
               error_code     TEXT,
+              receipt_json   TEXT,
               created_at     INTEGER NOT NULL,
               updated_at     INTEGER NOT NULL
             )
@@ -111,6 +112,9 @@ class OfflineQueue(
         if (oldVersion < 3) {
             // SEC-03 v3：动作幂等表（与加密迁移叠加，不丢队列内容）。
             createActionDedupTable(db)
+        } else if (oldVersion < 4) {
+            // v4：旧终态仍可读取；新回执的扩展字段按队列策略加密保存。
+            db.execSQL("ALTER TABLE action_dedup ADD COLUMN receipt_json TEXT")
         }
     }
 
@@ -375,6 +379,9 @@ class OfflineQueue(
         val capability: String,
         val terminalState: String?,
         val errorCode: String?,
+        val executedAt: Long? = null,
+        val providerRef: String? = null,
+        val result: Map<String, Any?>? = null,
     )
 
     /** 记录新动作（幂等）。返回 true=新插入；false=键已存在。 */
@@ -401,16 +408,27 @@ class OfflineQueue(
 
     fun getActionRecord(idemKey: String): ActionRecord? = readableDatabase.query(
         "action_dedup",
-        arrayOf("idem_key", "action_id", "capability", "terminal_state", "error_code"),
+        arrayOf("idem_key", "action_id", "capability", "terminal_state", "error_code", "receipt_json"),
         "idem_key = ?", arrayOf(idemKey), null, null, null,
     ).use { c ->
         if (!c.moveToFirst()) return null
+        val receipt = if (c.isNull(5)) emptyMap() else try {
+            EnvelopeCodec.payloadFromJson(decryptPayload(c.getString(5)))
+        } catch (e: Exception) {
+            // 损坏/密钥失效不能让副作用重新执行；保留旧终态，不回放损坏内容。
+            Log.w(TAG, "动作终态扩展字段不可读取", e)
+            emptyMap()
+        }
+        @Suppress("UNCHECKED_CAST")
         ActionRecord(
             idemKey = c.getString(0),
             actionId = c.getString(1),
             capability = c.getString(2),
             terminalState = if (c.isNull(3)) null else c.getString(3),
             errorCode = if (c.isNull(4)) null else c.getString(4),
+            executedAt = (receipt["executed_at"] as? Number)?.toLong(),
+            providerRef = receipt["provider_ref"] as? String,
+            result = receipt["result"] as? Map<String, Any?>,
         )
     }
 
@@ -421,13 +439,12 @@ class OfflineQueue(
         state: String,
         errorCode: String?,
         nowMs: Long = System.currentTimeMillis(),
+        executedAt: Long? = null,
+        providerRef: String? = null,
+        result: Map<String, Any?>? = null,
     ): Boolean = writableDatabase.update(
         "action_dedup",
-        ContentValues().apply {
-            put("terminal_state", state)
-            put("error_code", errorCode)
-            put("updated_at", nowMs)
-        },
+        terminalValues(state, errorCode, nowMs, executedAt, providerRef, result),
         "idem_key = ?", arrayOf(idemKey),
     ) > 0
 
@@ -438,15 +455,34 @@ class OfflineQueue(
         state: String,
         errorCode: String?,
         nowMs: Long = System.currentTimeMillis(),
+        executedAt: Long? = null,
+        providerRef: String? = null,
+        result: Map<String, Any?>? = null,
     ): Boolean = writableDatabase.update(
         "action_dedup",
-        ContentValues().apply {
-            put("terminal_state", state)
-            put("error_code", errorCode)
-            put("updated_at", nowMs)
-        },
+        terminalValues(state, errorCode, nowMs, executedAt, providerRef, result),
         "action_id = ?", arrayOf(actionId),
     ) > 0
+
+    private fun terminalValues(
+        state: String,
+        errorCode: String?,
+        nowMs: Long,
+        executedAt: Long?,
+        providerRef: String?,
+        result: Map<String, Any?>?,
+    ): ContentValues {
+        val receipt = linkedMapOf<String, Any?>()
+        if (executedAt != null) receipt["executed_at"] = executedAt
+        if (providerRef != null) receipt["provider_ref"] = providerRef
+        if (result != null) receipt["result"] = result
+        return ContentValues().apply {
+            put("terminal_state", state)
+            put("error_code", errorCode)
+            put("receipt_json", encryptPayload(EnvelopeCodec.payloadToJson(receipt)))
+            put("updated_at", nowMs)
+        }
+    }
 
     /** 有界：超过 [ACTION_DEDUP_CAPACITY] 时淘汰最旧记录。 */
     private fun evictActionDedup(db: SQLiteDatabase) {
@@ -480,8 +516,8 @@ class OfflineQueue(
     companion object {
         private const val TAG = "WhaleOfflineQueue"
 
-        /** DB v2：payload_json 列存 `v1.` 前缀密文（SEC-01）；v3：action_dedup（SEC-03）。 */
-        private const val DB_VERSION = 3
+        /** DB v2：payload_json 列存 `v1.` 前缀密文（SEC-01）；v3：action_dedup（SEC-03）；v4：完整终态扩展字段。 */
+        private const val DB_VERSION = 4
         private const val META_DROPPED = "dropped_count"
 
         /** 密文格式版本前缀（格式演进时递增并写迁移）。 */

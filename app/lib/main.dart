@@ -76,6 +76,8 @@ class _ModuleOverviewPageState extends State<ModuleOverviewPage> {
   // ---- VoIP 模块（B4 前半：phone.call.ring + call.* 信令，媒体走 PCM 桥）----
   bool _voipEnabled = false; // 宿主默认关（whale_modules/voip_enabled）
   bool? _voipPermissionGranted; // null = 未知（原生侧不可用）
+  bool _bridgeTokenConfigured = false;
+  final TextEditingController _bridgeTokenController = TextEditingController();
   final TextEditingController _bridgeHostController = TextEditingController();
   final TextEditingController _bridgePortController = TextEditingController();
 
@@ -361,6 +363,7 @@ class _ModuleOverviewPageState extends State<ModuleOverviewPage> {
         _voipPermissionGranted = perm == 'granted';
         _bridgeHostController.text = bridge['host'] as String? ?? '127.0.0.1';
         _bridgePortController.text = '${bridge['port'] ?? 18799}';
+        _bridgeTokenConfigured = bridge['tokenConfigured'] == true;
       });
       _registry.updateVoip(
         permissionGranted: _voipPermissionGranted,
@@ -397,11 +400,17 @@ class _ModuleOverviewPageState extends State<ModuleOverviewPage> {
     }
   }
 
-  Future<void> _saveVoipBridgeConfig() async {
+  Future<void> _saveVoipBridgeConfig({bool clearToken = false}) async {
     final host = _bridgeHostController.text.trim();
     final port = int.tryParse(_bridgePortController.text.trim()) ?? 0;
     try {
-      await _transport.setVoipBridgeConfig(host, port);
+      final token = clearToken ? '' : _bridgeTokenController.text;
+      await _transport.setVoipBridgeConfig(host, port,
+          token: token.isEmpty && !clearToken ? null : token);
+      _bridgeTokenController.clear();
+      final bridge = await _transport.getVoipBridgeConfig();
+      if (!mounted) return;
+      setState(() => _bridgeTokenConfigured = bridge['tokenConfigured'] == true);
       _appendLog('PCM 桥配置已保存: $host:$port');
     } catch (e) {
       _appendLog('PCM 桥配置保存失败: $e');
@@ -799,6 +808,7 @@ class _ModuleOverviewPageState extends State<ModuleOverviewPage> {
     _callSignalSub?.cancel();
     _urlController.dispose();
     _mcpTokenController.dispose();
+    _bridgeTokenController.dispose();
     _bridgeHostController.dispose();
     _bridgePortController.dispose();
     _registry.dispose();
@@ -1001,11 +1011,31 @@ class _ModuleOverviewPageState extends State<ModuleOverviewPage> {
             ),
             const SizedBox(width: 8),
             OutlinedButton(
-              onPressed: _saveVoipBridgeConfig,
+              onPressed: () => _saveVoipBridgeConfig(),
               child: const Text('保存'),
             ),
           ],
         ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _bridgeTokenController,
+          obscureText: true,
+          autocorrect: false,
+          enableSuggestions: false,
+          decoration: InputDecoration(
+            labelText: '独立媒体 BRIDGE_TOKEN',
+            helperText: _bridgeTokenConfigured
+                ? '已配置；留空保留，填写后点保存更新（不使用信令 token）'
+                : '未配置：媒体将安全拒绝连接；填写后点保存',
+            border: const OutlineInputBorder(),
+            isDense: true,
+          ),
+        ),
+        if (_bridgeTokenConfigured)
+          TextButton(
+            onPressed: () => _saveVoipBridgeConfig(clearToken: true),
+            child: const Text('清除媒体凭据（停止后续媒体连接）'),
+          ),
         if (spec.lastReceipt != null) _row('最近回执', spec.lastReceipt!),
         if (spec.lastError != null) _errorLine('最近错误: ${spec.lastError}'),
       ],

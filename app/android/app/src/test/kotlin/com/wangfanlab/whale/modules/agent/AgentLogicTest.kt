@@ -81,6 +81,25 @@ class AgentLogicTest {
     }
 
     @Test
+    fun `output reads honor local switches and reference classes`() {
+        fun error(ref: String = "agent:out:once-1.log", enabled: Boolean = true,
+                  root: Boolean = true, paused: Boolean = false, stopped: Boolean = false) =
+            AgentLogic.outputReadError(ref, enabled, root, paused, stopped)
+        assertEquals(null, error())
+        assertEquals("module_disabled", error(enabled = false))
+        assertEquals("unavailable", error(paused = true))
+        assertEquals("unavailable", error(stopped = true))
+        assertEquals("scope_denied", error(root = false))
+        assertEquals(null, error("agent:ui:latest", root = false))
+        assertEquals(null, error("agent:shot:shot-123.jpg", root = false))
+        for (ref in listOf("agent:out:", "agent:out:../secret", "agent:out:foo/other",
+                           "agent:out:foo..log", "agent:shot:other.jpg", "agent:ui:other",
+                           "file:/secret", "agent:out:" + "a".repeat(129))) {
+            assertEquals(ref, "bad_ref", error(ref))
+        }
+    }
+
+    @Test
     fun `结果摘要有界截断`() {
         val long = "x".repeat(5000)
         val t = AgentLogic.truncateSummary(long)

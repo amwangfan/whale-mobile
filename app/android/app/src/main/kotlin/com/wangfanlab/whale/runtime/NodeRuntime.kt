@@ -462,9 +462,17 @@ class NodeRuntime private constructor(
                     listOf(mapOf("error" to "missing_ref")), false, "agent.local")
                 return true
             }
+            val output = agentModule.readOutput(ref)
+            val error = output["error"] as? String
+            val status = when (error) {
+                null -> "ok"
+                "module_disabled", "scope_denied" -> "denied"
+                "unavailable" -> "unavailable"
+                else -> "error"
+            }
             client.sendSensorResult(
-                requestId, "ok",
-                listOf(agentModule.readOutput(ref)), false, "agent.local",
+                requestId, status,
+                listOf(output), false, "agent.local",
             )
             return true
         }

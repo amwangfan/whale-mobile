@@ -266,7 +266,11 @@ class WssClient(
         executor.execute {
             // SEC-03：业务层（Dart）终态也落幂等表，重连重放可返回真实终态。
             if (state == "executed" || state == "failed" || state == "unknown") {
-                queue.setActionTerminalByActionId(actionId, state, errorCode)
+                queue.setActionTerminalByActionId(
+                    actionId, state, errorCode,
+                    executedAt = if (state == "executed" || state == "failed") executedAt else null,
+                    providerRef = providerRef, result = result,
+                )
             }
             val payload = LinkedHashMap<String, Any?>()
             payload["action_id"] = actionId
@@ -521,8 +525,9 @@ class WssClient(
                 existing.terminalState != null -> {
                     Log.i(TAG, "重复 action.request（已终结=${existing.terminalState}），重发终态回执")
                     sendActionReceipt(
-                        existing.actionId, existing.terminalState,
-                        executedAt = now, errorCode = existing.errorCode,
+                        actionId, existing.terminalState,
+                        executedAt = existing.executedAt, errorCode = existing.errorCode,
+                        providerRef = existing.providerRef, result = existing.result,
                     )
                 }
                 // 跨重启发现「记录但未终结」：副作用结果不明 → unknown（人工核验，不重放）
@@ -570,11 +575,12 @@ class WssClient(
             { state, errorCode, providerRef, result ->
             executor.execute {
                 inFlightActionKeys.remove(idemKey)
-                if (state == "executed" || state == "failed" || state == "unknown") {
-                    queue.setActionTerminal(idemKey, state, errorCode)
-                }
                 val terminalAt =
                     if (state == "executed" || state == "failed") System.currentTimeMillis() else null
+                if (state == "executed" || state == "failed" || state == "unknown") {
+                    queue.setActionTerminal(idemKey, state, errorCode,
+                        executedAt = terminalAt, providerRef = providerRef, result = result)
+                }
                 sendActionReceipt(actionId, state, executedAt = terminalAt, errorCode = errorCode,
                     providerRef = providerRef, result = result)
                 postMain { listener.onActionTerminal(actionId, capability, state, errorCode) }
@@ -794,6 +800,7 @@ class WssClient(
             "glasses.card.show", "glasses.card.update", "glasses.card.dismiss",
             // V1.1（core#58）：设备自主体
             "device.agent.control", "device.agent.observe", "device.agent.shell",
+            "device.agent.output.read",
         )
 
         fun stateName(s: State): String = when (s) {

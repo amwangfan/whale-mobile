@@ -269,6 +269,13 @@ class AgentModule(
      * agent:shot:<file>（截图 base64）、agent:ui:latest（最近 UI dump 全文尾部）。
      */
     fun readOutput(ref: String): Map<String, Any?> {
+        AgentLogic.outputReadError(
+            ref,
+            moduleEnabled = isEnabled(appContext),
+            rootAuthorized = isRootAuthorized(appContext),
+            allPaused = NodeRuntime.isAllPaused(appContext),
+            estop = isEstop(appContext),
+        )?.let { return mapOf("error" to it) }
         val base = File(appContext.filesDir, "agent")
         return when {
             ref == "agent:ui:latest" -> {

@@ -46,19 +46,16 @@ public final class AudioBridge {
 
     public static synchronized void start(Context ctx, String host, int port) {
         stop();
-        String h = (host == null || host.length() == 0) ? DEFAULT_HOST : host;
-        int p = port > 0 ? port : DEFAULT_PORT;
-        applyVoipAudio(ctx);
         Context safeCtx = ctx != null ? ctx : appContext();
-        String auth = safeCtx == null ? "" : SignalPrefs.getToken(safeCtx);
-        String dbg = "n/a";
-        try {
-            java.io.File f = new java.io.File(safeCtx.getApplicationInfo().dataDir,
-                    "shared_prefs/nova_signal.xml");
-            dbg = "exists=" + f.exists() + " canRead=" + f.canRead() + " len=" + f.length();
-        } catch (Throwable t) { dbg = "err:" + t; }
-        FileLog.i("AudioBridge start ctx=" + (safeCtx != null)
-                + " tokenLen=" + auth.length() + " file[" + dbg + "]");
+        String auth = safeCtx == null ? "" : BridgePrefs.getToken(safeCtx);
+        if (auth.isEmpty()) {
+            FileLog.i("AudioBridge refused: configure independent media token locally");
+            return; // Fail closed before opening a socket or starting microphone capture.
+        }
+        // Defense in depth: call extras/remote payloads never select a credential recipient.
+        String h = BridgePrefs.getHost(safeCtx);
+        int p = BridgePrefs.getPort(safeCtx);
+        applyVoipAudio(safeCtx);
         AudioBridge b = new AudioBridge(h, p, auth);
         sInstance = b;
         b.startInternal();
@@ -193,11 +190,13 @@ public final class AudioBridge {
         final DataOutputStream out = new DataOutputStream(s.getOutputStream());
         final DataInputStream in = new DataInputStream(s.getInputStream());
 
-        // Server rejects PCM until authentication when BRIDGE_TOKEN is configured.
-        if (!authToken.isEmpty()) {
-            writeFrame(out, TYPE_CTRL, ("AUTH " + authToken).getBytes("UTF-8"));
-        }
+        writeFrame(out, TYPE_CTRL, ("AUTH " + authToken).getBytes("UTF-8"));
         writeFrame(out, TYPE_CTRL, ("HELLO nova sample=" + SAMPLE_RATE).getBytes("UTF-8"));
+        // Authentication must finish before opening the microphone or sending PCM.
+        // Current server sends AUTH_OK first; older handlers may send HELLO first.
+        s.setSoTimeout(8000);
+        String earlyHello = awaitAuth(in);
+        s.setSoTimeout(0);
 
         int minRec = AudioRecord.getMinBufferSize(SAMPLE_RATE,
                 AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
@@ -274,6 +273,28 @@ public final class AudioBridge {
                 throw new IOException("AudioRecord read " + n);
             }
         }
+    }
+
+    /** Bounded control-only pre-auth handshake; HELLO is not proof of authorization. */
+    private static String awaitAuth(DataInputStream in) throws IOException {
+        String hello = null;
+        for (int frame = 0; frame < 8; frame++) {
+            int len = in.readInt();
+            byte type = in.readByte();
+            if (len <= 0 || len > 4096 || type != TYPE_CTRL) {
+                throw new IOException("Invalid media authentication frame");
+            }
+            byte[] payload = new byte[len];
+            in.readFully(payload);
+            String line = new String(payload, "UTF-8");
+            if ("AUTH_OK".equals(line)) return hello;
+            if (line.startsWith("HELLO ")) {
+                hello = line;
+                continue;
+            }
+            throw new IOException("Media authentication rejected");
+        }
+        throw new IOException("Media authentication acknowledgement missing");
     }
 
     private static synchronized void writeFrame(DataOutputStream out, byte type, byte[] payload)

@@ -68,6 +68,103 @@ class ActionDedupStoreTest {
     }
 
     @Test
+    fun `完整终态经关闭重开仍保留嵌套 result 及原始时间`() {
+        val result = mapOf<String, Any?>(
+            "exit_code" to 0L,
+            "observation" to mapOf("nodes" to listOf("button", "text"), "ok" to true),
+            "stdout" to "shell output",
+        )
+        queue.recordActionIfAbsent("complete", "act-complete", "device.agent.shell")
+        assertTrue(queue.setActionTerminal("complete", "executed", null,
+            executedAt = 1730000000001L, providerRef = "provider-1", result = result))
+        queue.close()
+        queue = OfflineQueue(context, dbName = dbName)
+        val rec = queue.getActionRecord("complete")!!
+        assertEquals("executed", rec.terminalState)
+        assertEquals(1730000000001L, rec.executedAt)
+        assertEquals("provider-1", rec.providerRef)
+        assertEquals(result, rec.result)
+    }
+
+    @Test
+    fun `Dart 失败终态完整字段与空 result 可覆盖读取`() {
+        queue.recordActionIfAbsent("dart", "act-dart", "device.agent.control")
+        assertTrue(queue.setActionTerminalByActionId("act-dart", "failed", "internal",
+            executedAt = 77L, providerRef = "provider-dart", result = emptyMap()))
+        val rec = queue.getActionRecord("dart")!!
+        assertEquals("failed", rec.terminalState)
+        assertEquals("internal", rec.errorCode)
+        assertEquals(77L, rec.executedAt)
+        assertEquals("provider-dart", rec.providerRef)
+        assertEquals(emptyMap<String, Any?>(), rec.result)
+        queue.setActionTerminalByActionId("act-dart", "unknown", null)
+        val cleared = queue.getActionRecord("dart")!!
+        assertNull(cleared.executedAt)
+        assertNull(cleared.providerRef)
+        assertNull(cleared.result)
+    }
+
+    @Test
+    fun `v3 旧持久化终态和未终结记录兼容升级`() {
+        queue.close()
+        context.deleteDatabase(dbName)
+        android.database.sqlite.SQLiteDatabase.openOrCreateDatabase(
+            context.getDatabasePath(dbName).absolutePath, null,
+        ).use { db ->
+            db.execSQL("""CREATE TABLE action_dedup (
+                idem_key TEXT PRIMARY KEY, action_id TEXT NOT NULL, capability TEXT NOT NULL,
+                terminal_state TEXT, error_code TEXT, created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL)""")
+            db.execSQL("INSERT INTO action_dedup VALUES('old','old-action','c','failed','expired',1,1)")
+            db.execSQL("INSERT INTO action_dedup VALUES('pending','pending-action','c',NULL,NULL,2,2)")
+            db.version = 3
+        }
+        queue = OfflineQueue(context, dbName = dbName)
+        val old = queue.getActionRecord("old")!!
+        assertEquals("failed", old.terminalState)
+        assertEquals("expired", old.errorCode)
+        assertNull(old.executedAt)
+        assertNull(old.providerRef)
+        assertNull(old.result)
+        assertNull(queue.getActionRecord("pending")!!.terminalState)
+        assertFalse(queue.recordActionIfAbsent("old", "new-action", "c"))
+        assertTrue(queue.setActionTerminal("pending", "executed", null,
+            executedAt = 99L, result = mapOf("ok" to true)))
+        assertEquals(mapOf("ok" to true), queue.getActionRecord("pending")!!.result)
+    }
+
+    @Test
+    fun `扩展回执使用队列加密且损坏时不丢终态`() {
+        val cipher = object : QueueCipher {
+            override fun encrypt(plain: String): String =
+                java.util.Base64.getEncoder().encodeToString(plain.toByteArray())
+            override fun decrypt(blob: String): String =
+                String(java.util.Base64.getDecoder().decode(blob))
+        }
+        queue.close()
+        queue = OfflineQueue(context, dbName = dbName, cipher = cipher)
+        queue.recordActionIfAbsent("encrypted", "act-encrypted", "device.agent.observe")
+        queue.setActionTerminal("encrypted", "executed", null, executedAt = 42L,
+            providerRef = "private-provider", result = mapOf("screen" to "private-content"))
+        val raw = queue.readableDatabase.rawQuery(
+            "SELECT receipt_json FROM action_dedup WHERE idem_key='encrypted'", null,
+        ).use { c -> c.moveToFirst(); c.getString(0) }
+        assertTrue(raw.startsWith(OfflineQueue.CIPHER_PREFIX))
+        assertFalse(raw.contains("private-content"))
+        assertFalse(raw.contains("private-provider"))
+        queue.close()
+        queue = OfflineQueue(context, dbName = dbName, cipher = cipher)
+        assertEquals(mapOf("screen" to "private-content"), queue.getActionRecord("encrypted")!!.result)
+        queue.writableDatabase.execSQL(
+            "UPDATE action_dedup SET receipt_json='v1.!broken!' WHERE idem_key='encrypted'",
+        )
+        val damaged = queue.getActionRecord("encrypted")!!
+        assertEquals("executed", damaged.terminalState)
+        assertNull(damaged.result)
+        assertFalse(queue.recordActionIfAbsent("encrypted", "retry", "device.agent.observe"))
+    }
+
+    @Test
     fun `容量 FIFO 淘汰最旧`() {
         // 用小容量验证淘汰（避免灌 4096 条拖慢测试）
         val small = OfflineQueue(context, dbName = "test_dedup_small.db")

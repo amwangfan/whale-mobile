@@ -22,6 +22,7 @@ void main() {
     String? notifReadPermission,
     List<MethodCall>? calls,
   }) {
+    bool mediaTokenConfigured = false;
     messenger.setMockMethodCallHandler(channel, (call) async {
       calls?.add(call);
       switch (call.method) {
@@ -50,7 +51,16 @@ void main() {
         case 'requestVoipPermissions':
           return permission;
         case 'getVoipBridgeConfig':
-          return <String, dynamic>{'host': '127.0.0.1', 'port': 18799};
+          return <String, dynamic>{
+            'host': '127.0.0.1', 'port': 18799,
+            'tokenConfigured': mediaTokenConfigured,
+          };
+        case 'setVoipBridgeConfig':
+          final args = call.arguments as Map;
+          if (args.containsKey('token')) {
+            mediaTokenConfigured = (args['token'] as String).isNotEmpty;
+          }
+          return null;
         case 'getNotificationReadPermissionStatus':
           return notifReadPermission ?? 'granted';
         case 'getNotificationReadAllowedApps':
@@ -363,6 +373,40 @@ void main() {
     expect(calls.any((c) => c.method == 'connect'), isFalse);
     // 徽章回到推导态
     await expectInCard(tester, '通知推送', '已启用');
+  });
+
+  testWidgets('VoIP 媒体凭据遮罩、保存留空保留与显式清除', (tester) async {
+    final calls = <MethodCall>[];
+    mockNative(calls: calls);
+    await tester.pumpWidget(const WhaleApp());
+    await tester.pumpAndSettle();
+    await scrollTo(tester, '独立媒体 BRIDGE_TOKEN');
+    final tokenField = find.byWidgetPredicate((widget) =>
+        widget is TextField &&
+        widget.decoration?.labelText == '独立媒体 BRIDGE_TOKEN');
+    expect(tester.widget<TextField>(tokenField).obscureText, isTrue);
+    await tester.enterText(tokenField, 'MEDIA_TEST_ONLY');
+    await Scrollable.ensureVisible(
+      tester.element(find.widgetWithText(OutlinedButton, '保存')),
+      alignment: 0.5,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(OutlinedButton, '保存'));
+    await tester.pumpAndSettle();
+    expect(calls.lastWhere((c) => c.method == 'setVoipBridgeConfig')
+        .arguments['token'], 'MEDIA_TEST_ONLY');
+    expect(tester.widget<TextField>(tokenField).controller!.text, isEmpty);
+    await tester.tap(find.widgetWithText(OutlinedButton, '保存'));
+    await tester.pumpAndSettle();
+    expect((calls.lastWhere((c) => c.method == 'setVoipBridgeConfig')
+        .arguments as Map).containsKey('token'), isFalse);
+    await scrollTo(tester, '清除媒体凭据（停止后续媒体连接）');
+    await tester.tap(find.text('清除媒体凭据（停止后续媒体连接）'));
+    await tester.pumpAndSettle();
+    expect(calls.lastWhere((c) => c.method == 'setVoipBridgeConfig')
+        .arguments['token'], '');
+    expect(find.text('清除媒体凭据（停止后续媒体连接）'), findsNothing);
+    expect(find.textContaining('MEDIA_TEST_ONLY'), findsNothing);
   });
 
   testWidgets('可折叠连接测试区与日志区', (tester) async {

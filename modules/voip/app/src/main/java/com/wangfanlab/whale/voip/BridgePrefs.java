@@ -11,6 +11,7 @@ public final class BridgePrefs {
     private static final String PREFS = "nova_bridge";
     private static final String KEY_HOST = "host";
     private static final String KEY_PORT = "port";
+    private static final String KEY_TOKEN = "media_token";
 
     /** Dev default: phone → adb reverse → box :18799 */
     public static final String DEFAULT_HOST = "127.0.0.1";
@@ -37,6 +38,24 @@ public final class BridgePrefs {
         String h = (host == null || host.trim().length() == 0) ? DEFAULT_HOST : host.trim();
         int p = port > 0 ? port : DEFAULT_PORT;
         sp(ctx).edit().putString(KEY_HOST, h).putInt(KEY_PORT, p).apply();
+    }
+
+    /** Independent BRIDGE_TOKEN; never migrate/fall back to signaling credentials. */
+    public static String getToken(Context ctx) {
+        String token = sp(ctx).getString(KEY_TOKEN, "");
+        return token == null ? "" : token;
+    }
+
+    /** Empty explicitly clears media authorization; callers must not log the value. */
+    public static void setToken(Context ctx, String token) {
+        String value = token == null ? "" : token;
+        if (value.length() > 4096) throw new IllegalArgumentException("Invalid media token");
+        for (int i = 0; i < value.length(); i++) {
+            if (Character.isWhitespace(value.charAt(i)) || Character.isISOControl(value.charAt(i))) {
+                throw new IllegalArgumentException("Invalid media token");
+            }
+        }
+        sp(ctx).edit().putString(KEY_TOKEN, value).apply();
     }
 
     public static String summary(Context ctx) {

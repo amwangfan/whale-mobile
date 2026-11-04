@@ -286,8 +286,14 @@ public class BootstrapActivity extends Activity {
         portEdit.setInputType(InputType.TYPE_CLASS_NUMBER);
         box.addView(portEdit);
 
+        final EditText mediaTokenEdit = new EditText(this);
+        mediaTokenEdit.setHint(BridgePrefs.getToken(this).isEmpty()
+                ? "独立 BRIDGE_TOKEN（必填）" : "媒体 token 已配置；留空保留");
+        mediaTokenEdit.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        box.addView(mediaTokenEdit);
+
         new AlertDialog.Builder(this)
-                .setTitle("音频桥地址")
+                .setTitle("音频桥地址与独立媒体凭据")
                 .setView(box)
                 .setPositiveButton("保存", new android.content.DialogInterface.OnClickListener() {
                     @Override public void onClick(android.content.DialogInterface d, int w) {
@@ -296,6 +302,13 @@ public class BootstrapActivity extends Activity {
                         try {
                             port = Integer.parseInt(portEdit.getText().toString().trim());
                         } catch (NumberFormatException ignored) {}
+                        try {
+                            String token = mediaTokenEdit.getText().toString();
+                            if (!token.isEmpty()) BridgePrefs.setToken(BootstrapActivity.this, token);
+                        } catch (IllegalArgumentException e) {
+                            Toast.makeText(BootstrapActivity.this, "媒体 token 格式无效", Toast.LENGTH_LONG).show();
+                            return;
+                        }
                         BridgePrefs.set(BootstrapActivity.this, h, port);
                         refreshStatus();
                         Toast.makeText(BootstrapActivity.this,
@@ -303,10 +316,11 @@ public class BootstrapActivity extends Activity {
                                 Toast.LENGTH_SHORT).show();
                     }
                 })
-                .setNeutralButton("恢复默认", new android.content.DialogInterface.OnClickListener() {
+                .setNeutralButton("重置地址并清除媒体凭据", new android.content.DialogInterface.OnClickListener() {
                     @Override public void onClick(android.content.DialogInterface d, int w) {
                         BridgePrefs.set(BootstrapActivity.this,
                                 BridgePrefs.DEFAULT_HOST, BridgePrefs.DEFAULT_PORT);
+                        BridgePrefs.setToken(BootstrapActivity.this, "");
                         refreshStatus();
                     }
                 })
@@ -516,7 +530,7 @@ public class BootstrapActivity extends Activity {
                         }, 400);
                     }
                 })
-                .setNeutralButton("恢复默认", new android.content.DialogInterface.OnClickListener() {
+                .setNeutralButton("重置地址并清除媒体凭据", new android.content.DialogInterface.OnClickListener() {
                     @Override public void onClick(android.content.DialogInterface d, int w) {
                         SignalPrefs.setUrl(BootstrapActivity.this, SignalPrefs.DEFAULT_URL);
                         SignalPrefs.setDeviceId(BootstrapActivity.this, SignalPrefs.DEFAULT_DEVICE);

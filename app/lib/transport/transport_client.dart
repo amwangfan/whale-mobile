@@ -350,10 +350,11 @@ class TransportClient {
   }
 
   /// 写 PCM 桥端点配置（host 非空 ≤255 字符，port 1..65535）。
-  Future<void> setVoipBridgeConfig(String host, int port) =>
+  Future<void> setVoipBridgeConfig(String host, int port, {String? token}) =>
       _methods.invokeMethod<void>('setVoipBridgeConfig', <String, dynamic>{
         'host': host,
         'port': port,
+        'token': ?token,
       });
 
   // ---- 通知监听模块（B3 前半：phone.notification.read，独立可选默认关）----

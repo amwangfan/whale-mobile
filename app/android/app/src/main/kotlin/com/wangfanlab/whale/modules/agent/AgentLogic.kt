@@ -107,6 +107,24 @@ object AgentLogic {
         return Decision.Run(args ?: emptyMap())
     }
 
+    /** Output reads never inherit action scopes; local privacy switches still apply. */
+    fun outputReadError(
+        ref: String,
+        moduleEnabled: Boolean,
+        rootAuthorized: Boolean,
+        allPaused: Boolean,
+        estop: Boolean,
+    ): String? {
+        if (allPaused || estop) return "unavailable"
+        if (!moduleEnabled) return "module_disabled"
+        val valid = ref == "agent:ui:latest" ||
+            Regex("agent:out:[A-Za-z0-9_-][A-Za-z0-9_.-]{0,127}").matches(ref) ||
+            Regex("agent:shot:shot-[0-9]+[.]jpg").matches(ref)
+        if (!valid || ".." in ref) return "bad_ref"
+        if (ref.startsWith("agent:out:") && !rootAuthorized) return "scope_denied"
+        return null
+    }
+
     /** 结果摘要截断（receipt result.summary ≤2000）。 */
     fun truncateSummary(s: String): String =
         if (s.length <= MAX_OUTPUT_CHARS) s

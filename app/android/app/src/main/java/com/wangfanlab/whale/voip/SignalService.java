@@ -28,7 +28,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * HTTP long-poll client for Aliyun ring hub (sibling signaling/ring_hub.py).
  *
  * Poll:  GET {base}/v1/poll?device_id=magic8&wait=55[&token=]
- * Event: {"action":"ring","number":"...","name":"...","bridge_host":"...","bridge_port":18799}
+ * Event: {"action":"ring","number":"...","name":"..."}
  * Also accepts legacy {"cmd":"ring",...} from box mock hub.
  */
 public class SignalService extends Service {
@@ -263,24 +263,9 @@ public class SignalService extends Service {
     private void handleRing(final JSONObject ev) {
         final String number = textOr(ev, "number", "***");
         final String name = textOr(ev, "name", "AI 助手");
-        String host = textOr(ev, "bridge_host", null);
-        if (host == null || host.length() == 0) {
-            host = BridgePrefs.getHost(this);
-            if ("127.0.0.1".equals(host) || "localhost".equals(host)) {
-                host = "127.0.0.1";
-            }
-        }
-        final String bridgeHost = host;
-        int port = BridgePrefs.getPort(this);
-        if (ev.has("bridge_port")) {
-            port = ev.optInt("bridge_port", port);
-        }
-        if (port <= 0) port = 18799;
-        final int bridgePort = port;
-
-        try {
-            BridgePrefs.set(this, bridgeHost, bridgePort);
-        } catch (Throwable ignored) {}
+        // Remote ring metadata is untrusted. Endpoints are local-only (PROTOCOL §4/§7).
+        final String bridgeHost = BridgePrefs.getHost(this);
+        final int bridgePort = BridgePrefs.getPort(this);
 
         updateNotif("来电: " + name);
         mMain.post(new Runnable() {
