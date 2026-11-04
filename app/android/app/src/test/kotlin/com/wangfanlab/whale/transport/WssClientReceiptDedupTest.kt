@@ -16,7 +16,6 @@ import java.lang.reflect.Proxy
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
-import sun.misc.Unsafe
 
 /** Exercise the real WssClient dispatch/receipt paths, with no network or device identity access. */
 @RunWith(RobolectricTestRunner::class)
@@ -37,12 +36,9 @@ class WssClientReceiptDedupTest {
         context = ApplicationProvider.getApplicationContext()
         context.deleteDatabase(dbName)
         queue = OfflineQueue(context, dbName = dbName)
-        // This test never connects/authenticates. Avoid constructing an Android Keystore identity.
-        val unsafe = Unsafe::class.java.getDeclaredField("theUnsafe").let {
-            it.isAccessible = true
-            it.get(null) as Unsafe
-        }
-        val identity = unsafe.allocateInstance(DeviceIdentity::class.java) as DeviceIdentity
+        // This test never connects/authenticates. Use the test-only identity
+        // constructor (no Android Keystore in unit-test environments).
+        val identity = DeviceIdentity(ByteArray(32) { it.toByte() })
         client = WssClient(identity, queue, object : WssClient.Listener {
             override fun onStateChanged(state: WssClient.State, info: Map<String, Any?>) {}
             override fun onActionRequest(payload: Map<String, Any?>) {}

@@ -31,13 +31,26 @@ import javax.crypto.spec.GCMParameterSpec
  * 注意：主密钥失效（如恢复出厂/解锁方式变更）时身份会重新生成，device_id 改变，
  * 需要重新配对；此时会打 WARNING 日志。
  */
-class DeviceIdentity(context: Context) {
+class DeviceIdentity {
 
-    private val appContext = context.applicationContext
+    private val appContext: Context?
     private val publicKeyBytes: ByteArray
     private val privateParams: Ed25519PrivateKeyParameters
 
-    init {
+    /**
+     * 测试构造：给定 32 字节 Ed25519 种子，跳过 Keystore/SharedPreferences
+     * （Robolectric/纯 JVM 环境无 AndroidKeyStore）。仅测试代码使用。
+     */
+    @androidx.annotation.VisibleForTesting
+    internal constructor(testSeed: ByteArray) {
+        require(testSeed.size == 32) { "Ed25519 种子须为 32 字节" }
+        appContext = null
+        privateParams = Ed25519PrivateKeyParameters(testSeed, 0)
+        publicKeyBytes = privateParams.generatePublicKey().encoded
+    }
+
+    constructor(context: Context) {
+        appContext = context.applicationContext
         val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val stored = prefs.getString(KEY_SEED_BLOB, null)
         val seed: ByteArray = if (stored != null) {
