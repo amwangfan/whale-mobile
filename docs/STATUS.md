@@ -177,6 +177,8 @@
 - 具体完成：contracts/v1 minor（能力枚举 device.agent.control/observe/shell + action.receipt.result{summary,output_ref} + sensor.query 增 device.agent.output.read + error_code 增 timeout；校验 20/20）；AgentLogic 校验链（两级开关/estop/暂停/频控/参数形状，JUnit 8 例）；AgentShell（su 持续会话/超时/输出尾部 64KB/并发 ≤3/estop 销毁）；AgentModule 执行器（control 经 root input/am；observe 经 uiautomator/screencap 帧预算压缩；readOutput 不透明引用回读）；NodeRuntime 注册 + output.read 路由；桥接开关 getAgentStatus/setAgentEnabled/setAgentRootAuthorized/agentEmergencyStop/agentClearEstop
 - 联调发现：dev core 500 盲因（dispatch 吞异常无日志 → 已修）+ tailscale serve 8192 与网关 0.0.0.0:8192 冲突（WHALE_DEVICE_RELAY_HOST/PORT 环境变量覆盖，dev 实例改 127.0.0.1:8182）；nova GSI 的 su 对 app uid 不可用（SELinux untrusted_app 无法转 magisk context）——root shell 只能在 leaf5/Magisk 正常机验证
 - 待 leaf5 唤醒：Bilibili 启动/搜索/浏览/播放/暂停/进度/退出全链
+- **缺陷修复轮（2026-11-05，用户评审指出）**：executeOnce 先 waitFor(timeout) 再读输出（超时真实生效，实测 sleep60+5s 超时 5.3s 返回）；input_text 单引号包裹 + %/空格转义（$/反引号失去特殊语义）；swipe duration_ms 有界校验；control 检查退出码（非 0 即 failed）；estop 销毁持续会话 + 强杀在途一次性命令；会话日志 512KB 保尾回收；**control/observe 同样需要持续 Root 授权**（实现路径就是 Root Shell，否则 UI 参数成绕过入口）；补 Flutter 侧 Dart 封装 + UI 卡片（两级开关 + 红色紧急停止）
+- nova 实测：scope_denied（control 未授权）、estop unavailable、超时 timeout 三路径
 ### RELEASE-01（Issue #16）— Gate B/C 收口
 - 状态：**closed**（2026-11-01；验收记录 docs/RELEASE-GATE-BC.md；眼镜实物/24h 耗电为用户暂缓项）
 

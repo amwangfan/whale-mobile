@@ -128,14 +128,17 @@ class AgentModule(
         val cmd = buildControlCommand(action, args)
         val r = shell.execute(cmd, 30, null,
             estop = { isEstop(appContext) || NodeRuntime.isAllPaused(appContext) })
-        if (r.timedOut) {
-            reply("failed", "timeout", null, mapOf("summary" to "控制命令超时"))
-            return
+        when {
+            r.timedOut ->
+                reply("failed", "timeout", null, mapOf("summary" to "控制命令超时"))
+            // 退出码非 0 = 命令失败（启动失败/设备拒绝），不谎报 executed
+            r.exitCode != null && r.exitCode != 0 ->
+                reply("failed", "internal", "exit=${r.exitCode}",
+                    mapOf("summary" to "$action 失败（exit=${r.exitCode}）"))
+            else ->
+                reply("executed", null, null,
+                    mapOf("summary" to "$action ok (exit=${r.exitCode ?: 0})"))
         }
-        reply(
-            "executed", null, null,
-            mapOf("summary" to "$action ok (exit=${r.exitCode ?: 0})"),
-        )
     }
 
     private fun buildControlCommand(action: String, args: Map<String, Any?>): String = when (action) {
@@ -144,14 +147,21 @@ class AgentModule(
             // 解析 launcher activity 再启动（比 monkey 快且明确）
             "LA=$(cmd package resolve-activity --brief $pkg | tail -1); am start -n \"${'$'}LA\""
         }
-        "tap" -> "input tap ${args["x"]} ${args["y"]}"
-        "swipe" ->
-            "input swipe ${args["x"]} ${args["y"]} ${args["x2"]} ${args["y2"]} ${args["duration_ms"] ?: 300}"
-        "key" -> "input keyevent ${args["key"]}"
-        "input_text" -> {
-            val text = (args["text"] as String).replace("\"", "\\\"").replace("%", "%25").replace(" ", "%s")
-            "input text \"$text\""
+        "tap" -> {
+            val x = (args["x"] as Number).toInt()
+            val y = (args["y"] as Number).toInt()
+            "input tap $x $y"
         }
+        "swipe" -> {
+            val x = (args["x"] as Number).toInt()
+            val y = (args["y"] as Number).toInt()
+            val x2 = (args["x2"] as Number).toInt()
+            val y2 = (args["y2"] as Number).toInt()
+            val dur = (args["duration_ms"] as? Number)?.toInt() ?: 300
+            "input swipe $x $y $x2 $y2 $dur"
+        }
+        "key" -> "input keyevent ${args["key"]}"
+        "input_text" -> "input text ${shellQuote(inputEscape(args["text"] as String))}"
         "media" -> when (args["media_op"] as String) {
             "play" -> "input keyevent KEYCODE_MEDIA_PLAY"
             "pause" -> "input keyevent KEYCODE_MEDIA_PAUSE"
@@ -164,6 +174,16 @@ class AgentModule(
         }
         else -> "true"
     }
+
+    /**
+     * input text 的 Android 层转义：空格→%s、%→%25（input 命令的格式串语义）。
+     * 注意顺序：先 % 后空格。
+     */
+    private fun inputEscape(text: String): String =
+        text.replace("%", "%25").replace(" ", "%s")
+
+    /** Shell 单引号包裹（$、反引号、双引号全部失去特殊语义）。 */
+    private fun shellQuote(s: String): String = "'" + s.replace("'", "'\\''") + "'"
 
     // ---- observe ----
 

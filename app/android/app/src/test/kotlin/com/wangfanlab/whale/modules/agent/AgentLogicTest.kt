@@ -100,6 +100,38 @@ class AgentLogicTest {
     }
 
     @Test
+    fun `control 路径同样需要 Root 授权（实现走 su）`() {
+        assertEquals("scope_denied",
+            (validate(AgentLogic.CAP_CONTROL,
+                args = mapOf("action" to "tap", "x" to 1, "y" to 2),
+                rootAuthorized = false) as AgentLogic.Decision.Reject).errorCode)
+    }
+
+    @Test
+    fun `observe 路径同样需要 Root 授权`() {
+        assertEquals("scope_denied",
+            (validate(AgentLogic.CAP_OBSERVE, args = mapOf("mode" to "ui_tree"),
+                rootAuthorized = false) as AgentLogic.Decision.Reject).errorCode)
+    }
+
+    @Test
+    fun `swipe 时长注入拒绝`() {
+        assertEquals("invalid_message",
+            (validate(AgentLogic.CAP_CONTROL,
+                args = mapOf("action" to "swipe", "x" to 1, "y" to 2, "x2" to 3, "y2" to 4,
+                    "duration_ms" to 99999))
+                    as AgentLogic.Decision.Reject).errorCode)
+    }
+
+    @Test
+    fun `tap 缺坐标拒绝`() {
+        assertEquals("invalid_message",
+            (validate(AgentLogic.CAP_CONTROL,
+                args = mapOf("action" to "tap", "x" to 1))
+                    as AgentLogic.Decision.Reject).errorCode)
+    }
+
+    @Test
     fun `结果摘要有界截断`() {
         val long = "x".repeat(5000)
         val t = AgentLogic.truncateSummary(long)

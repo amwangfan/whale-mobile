@@ -85,6 +85,11 @@ class _ModuleOverviewPageState extends State<ModuleOverviewPage> {
   bool _notifReadEnabled = false; // whale_modules/notification_read_enabled
   bool? _notifReadBound; // SEC-02：系统是否已实际绑定监听器（与授权分开）
 
+  // ---- 设备自主体（core#58；默认全关） ----
+  bool _agentEnabled = false;
+  bool _agentRootAuth = false;
+  bool _agentEstop = false;
+
   // ---- 影子采集模块（SM-01；默认关；与独立 ScreenMemo 采集互斥）----
   bool _captureEnabled = false;
   bool _capturePersist = false;
@@ -157,6 +162,7 @@ class _ModuleOverviewPageState extends State<ModuleOverviewPage> {
       _initVoip();
       _initNotificationRead();
     _initCapture();
+    _initAgent();
       _initSafeAction();
       _initScreenMemo();
       _initEventExport();
@@ -441,6 +447,60 @@ class _ModuleOverviewPageState extends State<ModuleOverviewPage> {
       await _initCapture();
     } catch (e) {
       _appendLog('影子采集开关失败: $e');
+    }
+  }
+
+  // ------------------------------------------- 设备自主体（core#58，默认全关）
+
+  Future<void> _initAgent() async {
+    try {
+      final st = await _transport.getAgentStatus();
+      if (!mounted) return;
+      setState(() {
+        _agentEnabled = st['enabled'] as bool? ?? false;
+        _agentRootAuth = st['root_authorized'] as bool? ?? false;
+        _agentEstop = st['estop'] as bool? ?? false;
+      });
+    } catch (_) {/* 原生侧不可用（单元测试环境） */}
+  }
+
+  Future<void> _toggleAgentEnabled(bool v) async {
+    setState(() => _agentEnabled = v);
+    try {
+      await _transport.setAgentEnabled(v);
+      _appendLog('自主体模块 ${v ? '开启' : '关闭'}');
+    } catch (e) {
+      _appendLog('自主体开关失败: $e');
+    }
+  }
+
+  Future<void> _toggleAgentRootAuth(bool v) async {
+    setState(() => _agentRootAuth = v);
+    try {
+      await _transport.setAgentRootAuthorized(v);
+      _appendLog('持续 Root 授权 ${v ? '开启' : '关闭'}');
+    } catch (e) {
+      _appendLog('Root 授权开关失败: $e');
+    }
+  }
+
+  Future<void> _agentEmergencyStop() async {
+    try {
+      await _transport.agentEmergencyStop();
+      setState(() => _agentEstop = true);
+      _appendLog('自主体紧急停止已生效（会话销毁）');
+    } catch (e) {
+      _appendLog('紧急停止失败: $e');
+    }
+  }
+
+  Future<void> _agentClearEstop() async {
+    try {
+      await _transport.agentClearEstop();
+      setState(() => _agentEstop = false);
+      _appendLog('自主体紧急停止已解除');
+    } catch (e) {
+      _appendLog('解除失败: $e');
     }
   }
 
@@ -848,6 +908,7 @@ class _ModuleOverviewPageState extends State<ModuleOverviewPage> {
               _buildTransportCard(online),
               _buildNotificationCard(),
               _buildNotificationReadCard(),
+              _buildAgentCard(),
               _buildCaptureCard(),
               _buildVoipCard(),
               _buildSafeActionCard(),
@@ -1095,6 +1156,75 @@ class _ModuleOverviewPageState extends State<ModuleOverviewPage> {
         if (spec.lastReceipt != null) _row('最近回执', spec.lastReceipt!),
         if (spec.lastError != null) _errorLine('最近错误: ${spec.lastError}'),
       ],
+    );
+  }
+
+  /// 设备自主体卡（core#58）：两级开关 + 紧急停止（红色）。
+  Widget _buildAgentCard() {
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 6),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.smartphone),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text('设备自主体（Root 手机）',
+                      style: TextStyle(fontWeight: FontWeight.bold)),
+                ),
+              ],
+            ),
+            const Text('AI 对这台手机执行 UI 控制/观察/Root Shell；'
+                '默认全关；所有执行都走 Root Shell，故 control 也需 Root 授权'),
+            Row(
+              children: [
+                const Expanded(child: Text('模块开关')),
+                Switch(
+                  value: _agentEnabled,
+                  onChanged: _allPaused ? null : _toggleAgentEnabled,
+                ),
+              ],
+            ),
+            Row(
+              children: [
+                const Expanded(child: Text('持续 Root Shell 授权')),
+                Switch(
+                  value: _agentRootAuth,
+                  onChanged: _allPaused ? null : _toggleAgentRootAuth,
+                ),
+              ],
+            ),
+            if (_agentEstop)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 4),
+                child: Text('⚠ 紧急停止生效中：所有 agent 请求被拒绝',
+                    style: TextStyle(color: Colors.redAccent)),
+              ),
+            Row(
+              children: [
+                Expanded(
+                  child: _agentEstop
+                      ? OutlinedButton(
+                          onPressed: _agentClearEstop,
+                          child: const Text('解除紧急停止'),
+                        )
+                      : FilledButton.icon(
+                          style: FilledButton.styleFrom(
+                              backgroundColor: Colors.redAccent),
+                          onPressed: _agentEmergencyStop,
+                          icon: const Icon(Icons.stop_circle),
+                          label: const Text('紧急停止'),
+                        ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 
