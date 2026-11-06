@@ -3,40 +3,70 @@
 # whale-mobile
 
 *身无彩凤双飞翼，心有灵犀一点通*
-*(No phoenix wings to fly as one — yet minds linked, a touch and it's done.)*
 
-The Whale's body and senses on Android: perception, notifications, VoIP, glasses interaction and device execution.
+Whale's Android body and senses: perception, notifications, VoIP, glasses interaction and autonomous device control.
+
+[中文](README.md) · [Architecture](docs/ARCHITECTURE.md) · [AI developer guide](docs/AI_DEVELOPMENT_GUIDE.md) · [Status](docs/STATUS.md)
 
 </div>
 
----
+whale-mobile is the Android node for [whale-core](https://github.com/amwangfan/whale-core). The phone collects signals, presents information, handles real-time interactions and executes actions. Core provides persona, memory, decisions and multi-device orchestration. They communicate through the versioned [contracts/v1](contracts/v1/) protocol.
 
-**whale-mobile** is the Whale's Android phone node. It provides authorized on-device perception (screen, foreground app, notifications) and executes cloud-authorized outputs (notifications, realtime calls, glasses HUD, device actions) from [whale-core](https://github.com/amwangfan/whale-core) — the brain.
+The goal is not another chat app: Whale gains useful senses and a way to act. A daily-use phone and a dedicated Root phone can have different permission profiles.
 
-Division of labor: **sense, organize, interact and execute on the phone; understand, remember, decide in the Core.** The two sides talk only through the versioned protocol in [`contracts/`](contracts/); neither depends on the other's internals.
+## Current capabilities
 
-## Layout
+| Module | Implemented | Notes |
+| --- | --- | --- |
+| Background and transport | Application-level NodeRuntime, foreground service, network/boot recovery, authenticated WSS, encrypted offline queue and action receipts | Does not depend on a Flutter screen staying open |
+| Everyday perception | ScreenMemo MCP, built-in shadow capture, ML Kit OCR, indexing, data-source switching and notification listener | Capture sources and permissions are configurable |
+| Notifications | Post/cancel, device status, pause and receipts | Suitable for a daily phone |
+| Calls | Android Telecom integration and PCM audio bridge | Needs platform permissions and a configured bridge |
+| Glasses | RayNeo iO notification/HUD transport and acknowledgement plumbing | Actual on-glass display depends on device integration |
+| Dedicated AI phone | UI tree, screenshots, tap/swipe/text, app launching, media controls, persistent Root Shell sessions, output reading and emergency stop | Requires Root access, both local agent toggles and paired Core agent scopes |
 
-| Path | Contents | Stack |
-|------|----------|-------|
-| [`app/`](app/) | Flutter host UI: module toggles, pairing, status, permission wizard | Flutter / Dart |
-| [`modules/screenmemo/`](modules/screenmemo/) | ScreenMemo MCP security adapter (screen.context / search / evidence) | Dart + Kotlin |
-| [`modules/notifications/`](modules/notifications/) | Android notification post/update/cancel with receipts | Kotlin |
-| [`modules/voip/`](modules/voip/) | Self-managed Telecom calls + PCM audio bridge (migrated from whale-io call-bridge) | Java |
-| [`transport/`](transport/) | WSS control channel, device identity (Keystore Ed25519), offline queue | Kotlin |
-| [`server/`](server/) | Server-side audio bridge + dev reference gateway | Python |
-| [`contracts/`](contracts/) | Device-cloud protocol v1: JSON Schemas + golden examples | JSON Schema |
-| [`docs/`](docs/) | Architecture, migration, baselines, gate runbooks | Markdown |
+Core has an Android agent-loop implementation with simulated tests. Production decision wiring and the full Bilibili flow on a Root phone still require end-to-end verification.
 
-## Security & privacy baseline
+## Code map
 
-- Raw screenshots, OCR text, credentials and notification bodies **never leave the device by default**; cross-device access requires explicit scopes.
-- Device commands are authenticated, capability-whitelisted, auditable and revocable; the phone re-verifies independently — no arbitrary cloud shell/intents.
-- Basic features need no Root; Root is an optional add-on.
-- Four honesty levels for capability claims: `unit-tested` / `integration-tested` / `device-tested` / `production-ready`.
+| Location | Purpose |
+| --- | --- |
+| [`app/lib/`](app/lib/) | Flutter UI, module controls, permissions and transport client |
+| [`app/android/app/src/main/kotlin/com/wangfanlab/whale/runtime/`](app/android/app/src/main/kotlin/com/wangfanlab/whale/runtime/) | NodeRuntime, NodeService, startup/background recovery |
+| [`app/android/app/src/main/kotlin/com/wangfanlab/whale/modules/`](app/android/app/src/main/kotlin/com/wangfanlab/whale/modules/) | Native agent, capture, glasses, notifications, VoIP and related modules |
+| [`app/android/app/src/main/kotlin/com/wangfanlab/whale/transport/`](app/android/app/src/main/kotlin/com/wangfanlab/whale/transport/) | Identity, WSS, offline queue and Flutter bridge |
+| [`contracts/v1/`](contracts/v1/) | Device/cloud protocol, schemas and examples |
+| [`server/`](server/) | Server-side audio bridge and integration tools, not bundled in the Android APK |
+| [`docs/`](docs/) | Architecture, device tests, deployment and migration |
 
-## License & credits
+Top-level `modules/` and `transport/` also contain design or standalone module material; the primary Android runtime implementation is under `app/android/app/src/main/`.
 
-- © the whale-mobile authors.
-- Screen capture/search credits go to the [ScreenMemo](https://github.com/woijfwefw/ScreenMemo) project (AGPL-3.0).
-- VoIP & foreground-monitor infrastructure originated in the whale-io project.
+## Run and develop
+
+Install Flutter, the Android SDK and a suitable Java toolchain.
+
+```bash
+git clone https://github.com/amwangfan/whale-mobile.git
+cd whale-mobile
+python3 tests/contract_validate.py
+cd app
+flutter pub get
+flutter test
+flutter build apk --debug
+```
+
+The app generates a device identity, pairs with Core and lets you enable modules. See [Magic8 Pro setup](docs/SETUP-MAGIC8.md) for deployment and [status](docs/STATUS.md) for device-test coverage.
+
+## Device permissions
+
+- **Daily-use phone:** perception uses selected capture sources and Android permissions. Actions follow the actual Core/device grants; routine notifications need no extra artificial approval.
+- **Dedicated Root phone:** enable "Device Agent" and "Persistent Root Shell" in the app to allow a paired Core to observe, control the UI and use Root Shell. There is no arbitrary command allowlist; the phone has an emergency stop.
+- **Action outcomes:** rely on terminal receipts. Success, timeout, offline and unknown are different outcomes; do not blindly repeat an action with side effects.
+
+## CI (on demand)
+
+The [ci workflow](.github/workflows/ci.yml) runs via manual `workflow_dispatch`: choose `contracts`, `app`, `secret-scan` or `all` under **Actions → ci → Run workflow**. A merge is not a substitute for a real build or test run.
+
+## Credits and licenses
+
+Capture/search capabilities draw on [ScreenMemo](https://github.com/woijfwefw/ScreenMemo) (AGPL-3.0); part of the VoIP and monitoring lineage comes from whale-io. Third-party code and assets remain subject to their respective licenses.
