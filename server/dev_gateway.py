@@ -237,6 +237,7 @@ class ClientState:
 class PendingResponse:
     device_id: str
     future: asyncio.Future
+    response_type: str
 
 
 class Gateway:
@@ -487,16 +488,17 @@ class Gateway:
         await self.send_msg(st, "sensor.ack", {"event_ids": [p["event_id"]]})
 
     async def _on_sensor_result(self, st: ClientState, msg: dict):
-        fut = self._take_pending(msg["payload"]["request_id"], st.device_id)
+        fut = self._take_pending(msg["payload"]["request_id"], st.device_id, "sensor.result")
         if fut and not fut.done():
             fut.set_result(msg["payload"])
         else:
             log.warning("收到无对应请求的 sensor.result request_id=%s，忽略",
                         msg["payload"]["request_id"])
 
-    def _take_pending(self, ref_id: str, device_id: str):
+    def _take_pending(self, ref_id: str, device_id: str, response_type: str):
         pending = self.pending.get(ref_id)
-        if pending is None or pending.device_id != device_id:
+        if (pending is None or pending.device_id != device_id
+                or pending.response_type != response_type):
             return None
         return self.pending.pop(ref_id).future
 
@@ -515,7 +517,7 @@ class Gateway:
                 "INSERT INTO action_receipts(action_id, device_id, state, ts) VALUES(?,?,?,?)",
                 (action_id, st.device_id, str(state), now_ms()))
         if state in ("executed", "failed", "unknown"):
-            fut = self._take_pending(action_id, st.device_id)
+            fut = self._take_pending(action_id, st.device_id, "action.receipt")
             if fut and not fut.done():
                 fut.set_result(p)
         else:
@@ -602,7 +604,7 @@ class Gateway:
         if err:
             return err
         fut = asyncio.get_running_loop().create_future()
-        self.pending[request_id] = PendingResponse(st.device_id, fut)
+        self.pending[request_id] = PendingResponse(st.device_id, fut, "sensor.result")
         try:
             await self.send_msg(st, "sensor.query", payload)
             result = await asyncio.wait_for(fut, timeout=timeout_s + 5)
@@ -653,7 +655,7 @@ class Gateway:
             return {"ok": False, "error": "duplicate",
                     "message": f"幂等键 {idem_key} 已对该设备下发过"}
         fut = asyncio.get_running_loop().create_future()
-        self.pending[action_id] = PendingResponse(st.device_id, fut)
+        self.pending[action_id] = PendingResponse(st.device_id, fut, "action.receipt")
         try:
             await self.send_msg(st, "action.request", payload)
             receipt = await asyncio.wait_for(fut, timeout=timeout_s + 5)

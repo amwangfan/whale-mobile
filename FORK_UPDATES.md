@@ -1,5 +1,11 @@
 # Dreaminutes Fork 更新说明
 
+## 第 07 批：回包类型匹配
+
+等待项增加预期回包类型，与请求 ID、设备一起核对。错误类型不会消耗原等待项，后续正确回包仍可完成请求。联合检查 Core 186 项、Mobile 25 项通过。
+
+[第07批说明](https://github.com/dreaminutes/whale-core/blob/refactor/simplify-integration/docs/updates/07-response-type-matching.md)
+
 ## 第 06 批：最后一轮验证工具收尾
 
 Schema 校验工具检查元数据、必需文件和示例覆盖；生成器检查 hello/hello_ack 能力枚举一致性。配套 Core 检查入口增加阶段超时、独立运行目录和 summary.json。

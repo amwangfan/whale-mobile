@@ -32,7 +32,7 @@ def test_pending_query_can_only_be_completed_by_addressed_device():
     async def scenario():
         gw = dg.Gateway.__new__(dg.Gateway)
         future = asyncio.get_running_loop().create_future()
-        gw.pending = {'query-1': dg.PendingResponse('phone-1', future)}
+        gw.pending = {'query-1': dg.PendingResponse('phone-1', future, 'sensor.result')}
         msg = {'payload': {'request_id': 'query-1', 'status': 'ok'}}
         await gw._on_sensor_result(SimpleNamespace(device_id='phone-2'), msg)
         assert 'query-1' in gw.pending and not future.done()
@@ -50,10 +50,14 @@ def test_foreign_action_receipt_does_not_pollute_records_or_complete_waiter(tmp_
             conn.execute('INSERT INTO action_requests(device_id,idempotency_key,action_id,capability,created_at) VALUES(?,?,?,?,?)',
                          ('phone-1', 'idem-1', 'action-1', 'phone.notification.post', dg.now_ms()))
         future = asyncio.get_running_loop().create_future()
-        gw.pending = {'action-1': dg.PendingResponse('phone-1', future)}
+        gw.pending = {'action-1': dg.PendingResponse('phone-1', future, 'action.receipt')}
         msg = {'payload': {'action_id': 'action-1', 'state': 'executed'}}
         await gw._on_action_receipt(SimpleNamespace(device_id='phone-2'), msg)
         assert not future.done()
+        await gw._on_sensor_result(SimpleNamespace(device_id='phone-1'), {
+            'payload': {'request_id': 'action-1', 'status': 'ok'},
+        })
+        assert not future.done() and 'action-1' in gw.pending
         with dg.db_connect(gw.db_path) as conn:
             assert conn.execute('SELECT COUNT(*) FROM action_receipts').fetchone()[0] == 0
         await gw._on_action_receipt(SimpleNamespace(device_id='phone-1'), msg)
