@@ -92,7 +92,7 @@ def main(argv: "list[str] | None" = None) -> int:
         for line in problems:
             print(f"  {line}")
         print(
-            "\\n处置：先在 canonical（whale-mobile）落定变更，再整体同步到 "
+            "\n处置：先在 canonical（whale-mobile）落定变更，再整体同步到 "
             "whale-core 镜像；不要两侧分别改。"
         )
         return 1
