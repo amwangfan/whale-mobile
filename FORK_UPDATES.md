@@ -1,5 +1,11 @@
 # Dreaminutes Fork 更新说明
 
+## 第 08 批：Core 超时对账修复（本次停止）
+
+配套 Core 修复超时推定后迟到回执不能更新结果，以及清理任务与回执写入竞争的问题；Mobile 不需要新增业务实现。最终联合检查 Core 200 项、Mobile 25 项通过。按本次要求，第07、08批完成后停止。
+
+[第08批说明](https://github.com/dreaminutes/whale-core/blob/refactor/simplify-integration/docs/updates/08-late-receipt-reconciliation.md)
+
 ## 第 07 批：回包类型匹配
 
 等待项增加预期回包类型，与请求 ID、设备一起核对。错误类型不会消耗原等待项，后续正确回包仍可完成请求。联合检查 Core 186 项、Mobile 25 项通过。
