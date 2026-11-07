@@ -39,7 +39,7 @@ Core has an Android agent-loop implementation with simulated tests. Production d
 | [`server/`](server/) | Server-side audio bridge and integration tools, not bundled in the Android APK |
 | [`docs/`](docs/) | Architecture, device tests, deployment and migration |
 
-Top-level `modules/` and `transport/` also contain historical design or standalone module material; the current Android host runtime is assembled under `app/android/app/src/main/`. The old standalone `modules/voip/docs/` now contains historical design notes only; the standalone VoIP APK and duplicate Java sources have been removed.
+Top-level `modules/` and `transport/` also contain historical design or standalone module material; the current Android host runtime is assembled under `app/android/app/src/main/`. `modules/voip/docs/` now contains only historical VoIP design notes. The standalone VoIP APK and duplicate Java sources were removed.
 
 ## Run and develop
 
