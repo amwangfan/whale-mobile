@@ -17,16 +17,37 @@ if (keystoreReady) {
 
 android {
     namespace = "com.wangfanlab.whale"
-    compileSdk = flutter.compileSdkVersion
+    // file_picker/flutter_plugin_android_lifecycle 要求 compileSdk 36+
+    compileSdk = 36
     ndkVersion = flutter.ndkVersion
+
+    buildFeatures {
+        // CapabilityRegistry 按 BuildConfig.FLAVOR 区分 daily/root 能力
+        buildConfig = true
+    }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    // 主线二（双 APK）：同一代码库构建日常版/Root 版。Root 版独有能力
+    // （Root Shell、设备控制、MediaProjection 录制等）只在 root 变体注册，
+    // 不靠 UI 隐藏（contracts/v2 §5.2 CapabilityRegistry）。
+    flavorDimensions += "edition"
+    productFlavors {
+        create("daily") {
+            dimension = "edition"
+            // 保留已发布的正式 applicationId
+        }
+        create("root") {
+            dimension = "edition"
+            applicationIdSuffix = ".root"
+            versionNameSuffix = "-root"
+        }
+    }
+
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.wangfanlab.whale"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
@@ -59,6 +80,11 @@ android {
             } else {
                 signingConfigs.getByName("debug")
             }
+            // Flutter release 默认 R8 收缩；反射装配的模块须显式 keep
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
         }
     }
 }
@@ -80,6 +106,8 @@ dependencies {
     // androidx.core：通知监听模块的 NotificationManagerCompat.getEnabledListenerPackages
     // （Flutter embedding 本就传递依赖；显式声明以锁定编译期 API）
     implementation("androidx.core:core:1.13.1")
+    // notification2：ActionReceiver 内 goAsync 协程（goAsync 窗口内完成 Outbox 上行尝试）
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     // SM-02：ML Kit 中文 OCR（本地识别，与 ScreenMemo 同款依赖；不上云）
     implementation("com.google.mlkit:text-recognition-chinese:16.0.1")
     testImplementation("junit:junit:4.13.2")
