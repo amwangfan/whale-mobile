@@ -15,6 +15,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import math
 import os
 import secrets
 import sqlite3
@@ -225,6 +226,7 @@ class ClientState:
         self.challenge_deadline = 0.0
         self.session_id: str | None = None
         self.down_seq = 0
+        self.send_lock = asyncio.Lock()
         self.expected_up_seq: int | None = None
         self.last_heartbeat = time.monotonic()
         self.offline_marked = False
@@ -266,10 +268,27 @@ class Gateway:
         return msg
 
     async def send_msg(self, st: ClientState, msg_type: str, payload: dict) -> dict:
-        st.down_seq += 1
-        msg = self.build_message(msg_type, "downlink", payload, st.down_seq)
-        await st.ws.send(json.dumps(msg, ensure_ascii=False))
-        return msg
+        async with st.send_lock:
+            msg = self.build_message(msg_type, "downlink", payload, st.down_seq + 1)
+            st.down_seq += 1
+            await st.ws.send(json.dumps(msg, ensure_ascii=False))
+            return msg
+
+    def _preflight(self, msg_type: str, payload: dict):
+        try:
+            self.build_message(msg_type, "downlink", payload, 0)
+        except (ValueError, TypeError) as exc:
+            return {"ok": False, "error": "invalid_message", "message": str(exc)}
+        return None
+
+    @staticmethod
+    def _timeout(req: dict):
+        value = req.get("timeout", 15)
+        try:
+            timeout = float(value)
+        except (TypeError, ValueError):
+            return None
+        return timeout if not isinstance(value, bool) and math.isfinite(timeout) and timeout > 0 else None
 
     async def send_error(self, st: ClientState, ref_id, code: str, message: str):
         if not (isinstance(ref_id, str) and 16 <= len(ref_id) <= 64):
@@ -568,7 +587,9 @@ class Gateway:
         err = self._check_scope(st, operation)
         if err:
             return err
-        timeout_s = float(req.get("timeout", 15))
+        timeout_s = self._timeout(req)
+        if timeout_s is None:
+            return {"ok": False, "error": "invalid_message", "message": "timeout must be finite and positive"}
         request_id = uuid.uuid4().hex
         payload = {
             "request_id": request_id,
@@ -577,6 +598,9 @@ class Gateway:
             "max_items": int(req.get("max_items", 10)),
             "deadline": now_ms() + int(timeout_s * 1000),  # §2：请求必须带超时
         }
+        err = self._preflight("sensor.query", payload)
+        if err:
+            return err
         fut = asyncio.get_running_loop().create_future()
         self.pending[request_id] = PendingResponse(st.device_id, fut)
         try:
@@ -597,12 +621,27 @@ class Gateway:
         err = self._check_scope(st, capability)
         if err:
             return err
-        timeout_s = float(req.get("timeout", 15))
+        timeout_s = self._timeout(req)
+        if timeout_s is None:
+            return {"ok": False, "error": "invalid_message", "message": "timeout must be finite and positive"}
         action_id = uuid.uuid4().hex
-        idem_key = req.get("idempotency_key") or f"idem-{uuid.uuid4().hex}"
-        if not (8 <= len(idem_key) <= 128):  # §6 幂等键约束
+        idem_key = req.get("idempotency_key")
+        if idem_key is None:
+            idem_key = f"idem-{uuid.uuid4().hex}"
+        if not isinstance(idem_key, str) or not (8 <= len(idem_key) <= 128):  # §6 幂等键约束
             return {"ok": False, "error": "internal",
                     "message": "idempotency_key 长度须为 8..128"}
+        payload = {
+            "action_id": action_id,
+            "capability": capability,
+            "args": req.get("args") or {},
+            "authorized_scope": req.get("authorized_scope") or [capability],
+            "expires_at": now_ms() + int(timeout_s * 1000),
+            "idempotency_key": idem_key,
+        }
+        err = self._preflight("action.request", payload)
+        if err:
+            return err
         init_db(self.db_path)
         with db_connect(self.db_path) as conn:
             cur = conn.execute(
@@ -613,14 +652,6 @@ class Gateway:
         if cur.rowcount == 0:
             return {"ok": False, "error": "duplicate",
                     "message": f"幂等键 {idem_key} 已对该设备下发过"}
-        payload = {
-            "action_id": action_id,
-            "capability": capability,
-            "args": req.get("args") or {},
-            "authorized_scope": req.get("authorized_scope") or [capability],
-            "expires_at": now_ms() + int(timeout_s * 1000),
-            "idempotency_key": idem_key,
-        }
         fut = asyncio.get_running_loop().create_future()
         self.pending[action_id] = PendingResponse(st.device_id, fut)
         try:

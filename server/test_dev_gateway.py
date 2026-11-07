@@ -71,6 +71,47 @@ def test_explicit_new_capabilities_do_not_expand_default_pairing(tmp_path):
     assert json.loads(dg.get_device(db, device)['scopes']) == scopes
 
 
+def test_invalid_action_does_not_reserve_idempotency_key(tmp_path):
+    async def scenario():
+        _, pubkey, _ = make_device_keypair()
+        gw = dg.Gateway(db_path=str(tmp_path / 'invalid-action.db'))
+        _, device = dg.pair_request(gw.db_path, 'phone', pubkey)
+        dg.pair_approve(gw.db_path, dg.get_device(gw.db_path, device)['pairing_code'])
+        gw.online[device] = SimpleNamespace(device_id=device)
+        request = {'device': device, 'capability': 'phone.notification.post',
+                   'idempotency_key': 'not-burned-key', 'args': {str(i): i for i in range(33)}}
+        result = await gw._admin_action(request)
+        assert result['error'] == 'invalid_message' and not gw.pending
+        with dg.db_connect(gw.db_path) as conn:
+            assert conn.execute('SELECT COUNT(*) FROM action_requests').fetchone()[0] == 0
+    asyncio.run(scenario())
+
+
+def test_concurrent_send_sequence_matches_wire_order():
+    async def scenario():
+        first_entered, release = asyncio.Event(), asyncio.Event()
+        frames = []
+        class Socket:
+            async def send(self, raw):
+                frame = json.loads(raw)
+                if frame['seq'] == 1:
+                    first_entered.set()
+                    await release.wait()
+                frames.append(frame['seq'])
+        gw = dg.Gateway()
+        state = dg.ClientState(Socket())
+        payload = {'ref_id': 'a' * 16, 'code': 'internal', 'message': 'test'}
+        first = asyncio.create_task(gw.send_msg(state, 'error', payload))
+        await first_entered.wait()
+        second = asyncio.create_task(gw.send_msg(state, 'error', payload))
+        await asyncio.sleep(0)
+        assert frames == []
+        release.set()
+        await asyncio.gather(first, second)
+        assert frames == [1, 2]
+    asyncio.run(scenario())
+
+
 # ---------------------------------------------------------------- helpers
 
 def make_device_keypair():

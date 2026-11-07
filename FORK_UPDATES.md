@@ -1,5 +1,11 @@
 # Dreaminutes Fork 更新说明
 
+## 第 05 批：请求发送可靠性
+
+参考网关新增发送前协议预检，非法动作不会消耗幂等键；每条连接序号与发送串行化；拒绝非法超时和显式幂等键类型。既有能力与默认授权保持不变。
+
+参考网关及工具联合回归 22 项通过。详见 [Core 第05批](https://github.com/dreaminutes/whale-core/blob/refactor/simplify-integration/docs/updates/05-dispatch-reliability.md)。
+
 ## 第 03 批：设备互联整理
 
 状态：实现和本机联合验证完成，已推送。日期：2026-11-07。
