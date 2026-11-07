@@ -47,6 +47,8 @@ python scripts/check_device_interop.py --mobile ../whale-mobile --log-dir ../log
 
 五个阶段按顺序执行：镜像协议、生成能力表、黄金示例与负例、Core 设备测试、Mobile 参考网关与生成器测试。失败即停止；使用 `--contracts-only` 可只运行前三项。日志写入指定目录，命令不需要真实模型 Key，也不操作真实手机。
 
+每次运行在指定目录中新建 `run-*` 子目录，包含分阶段 `.log` 和 `summary.json`，不会覆盖旧结果。默认每阶段最多 180 秒，可用 `--stage-timeout 300` 调整；超时或启动失败也会写入明确状态。
+
 Core 的手动 `contract-sync` workflow 可选择 Mobile 仓库、配套 ref，以及 contracts/full 检查集。验收本 Fork 时，Mobile 仓库选 `dreaminutes/whale-mobile`，两边 ref 都选 `refactor/simplify-integration`。工作流配置已提供，是否实际执行须看 Actions 记录。
 
 ## 请求归属

@@ -1,5 +1,13 @@
 # Dreaminutes Fork 更新说明
 
+## 第 06 批：最后一轮验证工具收尾
+
+Schema 校验工具检查元数据、必需文件和示例覆盖；生成器检查 hello/hello_ack 能力枚举一致性。配套 Core 检查入口增加阶段超时、独立运行目录和 summary.json。
+
+最终联合检查：Core 185 项、Mobile 25 项通过，协议 20/20、两仓 36 文件一致。实现提交：Mobile 2dd31ac、Core f176ab4。按用户要求，完成本批后停止，不继续新一轮。
+
+[第06批完整说明](https://github.com/dreaminutes/whale-core/blob/refactor/simplify-integration/docs/updates/06-validation-tooling.md)
+
 ## 第 05 批：请求发送可靠性
 
 参考网关新增发送前协议预检，非法动作不会消耗幂等键；每条连接序号与发送串行化；拒绝非法超时和显式幂等键类型。既有能力与默认授权保持不变。
