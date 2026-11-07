@@ -39,7 +39,7 @@ Core has an Android agent-loop implementation with simulated tests. Production d
 | [`server/`](server/) | Server-side audio bridge and integration tools, not bundled in the Android APK |
 | [`docs/`](docs/) | Architecture, device tests, deployment and migration |
 
-Top-level `modules/` and `transport/` also contain historical design or standalone module material; the current Android host runtime is assembled under `app/android/app/src/main/`. The old standalone `modules/voip/` project remains tracked for cleanup in #35 and is not the host runtime entrypoint.
+Top-level `modules/` and `transport/` also contain historical design or standalone module material; the current Android host runtime is assembled under `app/android/app/src/main/`. `modules/voip/docs/` now contains only historical VoIP design notes. The standalone VoIP APK and duplicate Java sources were removed.
 
 ## Run and develop
 
@@ -52,7 +52,7 @@ python3 tests/contract_validate.py
 cd app
 flutter pub get
 flutter test
-flutter build apk --debug
+flutter build apk --debug --flavor daily
 ```
 
 The app generates a device identity, pairs with Core and lets you enable modules. See [Magic8 Pro setup](docs/SETUP-MAGIC8.md) for deployment and [status](docs/STATUS.md) for device-test coverage.

@@ -1,4 +1,4 @@
-"""Offline JVM regression tests for both shipped VoIP Java copies.
+"""Offline JVM regression tests for the shipped Android host VoIP implementation.
 
 Uses only Python stdlib + JDK, generated Android fakes and a loopback mock TCP
 bridge. No SDK, Gradle download, device, real signaling/media service or secrets.
@@ -9,9 +9,8 @@ import subprocess
 import tempfile
 import unittest
 
-ROOT = pathlib.Path(__file__).resolve().parents[3]
-COPIES = [ROOT / "modules/voip/app/src/main/java/com/wangfanlab/whale/voip",
-          ROOT / "app/android/app/src/main/java/com/wangfanlab/whale/voip"]
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+COPIES = [ROOT / "app/android/app/src/main/java/com/wangfanlab/whale/voip"]
 
 STUBS = {
     "android/content/SharedPreferences.java": '''package android.content;
@@ -177,7 +176,7 @@ public class MediaSecurityHarness {
 
 class MediaSecurityTest(unittest.TestCase):
     @unittest.skipUnless(shutil.which("javac") and shutil.which("java"), "JDK required")
-    def test_both_java_copies(self):
+    def test_host_java_source(self):
         for source in COPIES:
             with self.subTest(source=str(source.relative_to(ROOT))), tempfile.TemporaryDirectory() as tmp:
                 base = pathlib.Path(tmp)

@@ -129,7 +129,8 @@ class ScreenMemoEventPoller extends ChangeNotifier {
   @visibleForTesting
   Duration get currentDelay {
     if (_consecutiveFailures < backoffThreshold) return interval;
-    final shift = _consecutiveFailures - backoffThreshold + 1;
+    // 连续离线很久时，限制位移以免整数溢出导致高速重试。
+    final shift = (_consecutiveFailures - backoffThreshold + 1).clamp(0, 20);
     final ms = interval.inMilliseconds * (1 << shift);
     return ms >= maxBackoff.inMilliseconds
         ? maxBackoff
@@ -208,16 +209,15 @@ class ScreenMemoEventPoller extends ChangeNotifier {
           maxSummaryChars,
         );
         final occurredAt = ScreenMemoAdapter.asInt(event['occurred_at']);
-        // EV-01：治理裁决（终态——丢弃事件照常推进游标，不补传）。
-        final decision = _governor.decide(
-          GovernedEvent(
-            id: id,
-            kind: kind,
-            summary: summary,
-            occurredAtMs: occurredAt ?? DateTime.now().millisecondsSinceEpoch,
-          ),
-          DateTime.now().millisecondsSinceEpoch,
+        // 先检查，成功入队后再记录去重状态；失败后可用原幂等键重试。
+        final now = DateTime.now().millisecondsSinceEpoch;
+        final governed = GovernedEvent(
+          id: id,
+          kind: kind,
+          summary: summary,
+          occurredAtMs: occurredAt ?? now,
         );
+        final decision = _governor.inspect(governed, now);
         if (!decision.pass) {
           _logger?.call('事件治理丢弃(${decision.reason}) id=$id kind=$kind');
           await _advanceCursor(id);
@@ -238,6 +238,7 @@ class ScreenMemoEventPoller extends ChangeNotifier {
           _onFailure('sendSensorEvent: $e');
           return;
         }
+        _governor.recordAccepted(governed, bodyHash: decision.bodyHash);
         await _advanceCursor(id);
         _uploadedCount++;
         _lastEventAtMs = occurredAt ?? _lastEventAtMs;

@@ -52,7 +52,7 @@ Flutter UI
 | VoIP | `app/android/app/src/main/java/com/wangfanlab/whale/voip/` | Telecom 来电与 PCM 音频桥 |
 | Glasses | `modules/glasses/` | 雷鸟 iO 通知/HUD 适配 |
 
-旧独立 `modules/voip/` 工程仍在仓库中，清理由 Issue #35 跟踪；它不是宿主 APK 的运行入口。
+旧独立 `modules/voip/` 工程与重复 Java 源码已删除，只保留历史设计资料；宿主 VoIP 是唯一实现。
 
 ## 5. 传输与回执
 
@@ -74,8 +74,9 @@ python3 scripts/contract_sync_check.py --core ../whale-core --mobile .
 cd app
 flutter test
 flutter analyze
-flutter build apk --debug
-cd android && ./gradlew :app:testDebugUnitTest
+flutter build apk --debug --flavor daily
+flutter build apk --debug --flavor root
+cd android && ./gradlew :app:testDailyDebugUnitTest :app:testRootDebugUnitTest
 ```
 
 CI 只在 GitHub Actions 手动触发。真机结果、机型差异和未完成验收见 [STATUS](STATUS.md)。

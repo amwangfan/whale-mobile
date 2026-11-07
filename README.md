@@ -32,14 +32,14 @@ Core 已有 Android 自主体编排器与模拟测试，但生产决策入口和
 | 位置 | 用途 |
 | --- | --- |
 | [`app/lib/`](app/lib/) | Flutter 主界面、模块开关、权限引导、传输客户端 |
-| [`app/android/app/src/main/kotlin/com/wangfanlab/whale/runtime/v2/`](app/android/app/src/main/kotlin/com/wangfanlab/whale/runtime/) | NodeRuntimeV2、NodeServiceV2、重启与后台恢复 |
+| [`app/android/app/src/main/kotlin/com/wangfanlab/whale/runtime/v2/`](app/android/app/src/main/kotlin/com/wangfanlab/whale/runtime/v2/) | NodeRuntimeV2、NodeServiceV2、重启与后台恢复 |
 | [`app/android/app/src/main/kotlin/com/wangfanlab/whale/modules/`](app/android/app/src/main/kotlin/com/wangfanlab/whale/modules/) | agent / capture / glasses / notifications / notificationread / voip / safeaction 等实际原生实现 |
-| [`app/android/app/src/main/kotlin/com/wangfanlab/whale/transport/v2/`](app/android/app/src/main/kotlin/com/wangfanlab/whale/transport/) | V2 设备身份、WSS、离线队列、Flutter 原生桥 |
+| [`app/android/app/src/main/kotlin/com/wangfanlab/whale/transport/v2/`](app/android/app/src/main/kotlin/com/wangfanlab/whale/transport/v2/) | V2 设备身份、WSS、离线队列、Flutter 原生桥 |
 | [`contracts/v2/`](contracts/v2/) | 端云协议、Schema、示例（与 Core 同步） |
 | [`server/`](server/) | 服务端音频桥与联调工具，不是 Android APK 内容 |
 | [`docs/`](docs/) | 架构、真机验收、部署与迁移记录 |
 
-仓库顶层的 `modules/`、`transport/` 等目录仍包含历史设计或独立模块资料；当前 Android 宿主以 `app/android/app/src/main/` 的 V2 装配关系为准。`modules/voip/` 的旧独立工程仍待清理（#35），不是宿主运行时入口。
+仓库顶层的 `modules/voip/docs/` 和 `transport/` 仅保留历史设计资料；当前 Android 宿主以 `app/android/app/src/main/` 的 V2 装配关系为准。旧独立 VoIP APK 和重复 Java 源码已清理，媒体鉴权测试迁移至 `tests/test_voip_media_security.py`。
 
 ## 运行与开发
 
@@ -52,10 +52,32 @@ python3 tests/contract_validate.py
 cd app
 flutter pub get
 flutter test
-flutter build apk --debug
+flutter build apk --debug --flavor daily
 ```
 
 安装后按 App 引导生成设备身份、连接 Core、配置所需模块。正式手机的安装和后台运行方法见 [Magic8 Pro 指南](docs/SETUP-MAGIC8.md)；真机能力和测试状态见 [STATUS](docs/STATUS.md)。
+
+## 结构与技术栈
+
+| 运行层 | 代码位置 | 技术 |
+| --- | --- | --- |
+| 应用页面 | `app/lib/features/`、`app/lib/modules/` | Flutter / Dart |
+| 设备后台 | `app/android/app/src/main/kotlin/.../runtime/v2/` | Kotlin、Android Service、Lifecycle |
+| 通信与缓存 | `transport/v2/`（Android 宿主内） | V2 WSS、Ed25519、SQLite 加密离线队列 |
+| 感知与索引 | `modules/capture/`、ScreenMemo 客户端 | Android Accessibility、ML Kit OCR、SQLite / FTS |
+| 自动操作 | `modules/agent2/` | UI 树、无障碍操作、Root Shell |
+| 来电与语音 | `app/android/.../voip/`、`server/audio-bridge/` | Android Telecom、PCM/TCP |
+| 界面通知与眼镜 | `modules/notification2/`、`modules/glasses/` | Android 通知、可插拔设备桥 |
+
+已实测 V2 设备握手、通知、查询/回执和部分 Root 执行；连续的自主 APP 任务和雷鸟真实显示仍未完成完整验收。Flutter 页面只负责展示与配置，不持有后台 WSS 连接。
+
+```bash
+cd app
+flutter build apk --debug --flavor daily
+flutter build apk --debug --flavor root
+cd android
+./gradlew :app:testDailyDebugUnitTest :app:testRootDebugUnitTest
+```
 
 ## 设备权限
 

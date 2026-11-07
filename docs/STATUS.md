@@ -1,5 +1,8 @@
 # WM 任务状态跟踪
 
+> 当前维护说明（2026-11-08）：本页保留旧 V1 阶段的真机验收时间线，不能据此证明新 V2 构建已经全部通过真机回归。当前生产源码以 `app/android`、`contracts/v2/` 和 [架构文档](ARCHITECTURE.md) 为准。
+> 维护分支已清除独立 VoIP APK 与重复源码、修复 ScreenMemo 事件重试和历史事件默认丢失、收敛 Flutter 入口并修订双 flavor CI。上述变更以本轮 PR、CI 和后续真机实测为验收依据。
+
 > 按 ROADMAP §5 格式，每次合并更新。状态：not_started / in_progress / blocked / unit-tested / integration-tested / device-tested / merged。
 
 ### WM-01 — 仓库迁移、现状审计、单 APK Host 基线

@@ -16,8 +16,8 @@ void main() {
       expect(g.stats['passed'], 1);
     });
 
-    test('过期事件不补传', () {
-      final g = EventGovernor();
+    test('显式开启过期策略时才丢弃', () {
+      final g = EventGovernor(staleMs: 10 * 60 * 1000);
       final d = g.decide(
           ev(1, 'screen.app_changed', '番茄: 打开', at: base - 11 * 60 * 1000),
           base);
@@ -127,6 +127,51 @@ void main() {
         }
       }
       expect(passedB, 5 - 3); // 总量 5，A 已占 3
+    });
+
+    test('默认无数量预算和过期丢弃，允许恢复较早事件', () {
+      final g = EventGovernor(mergeWindowMs: 0, simhashThreshold: -1);
+      for (var i = 0; i < 150; i++) {
+        final event = ev(i, 'screen.app_changed', '番茄: 状态$i',
+            at: base - 24 * 3600 * 1000 + i * 60000);
+        expect(g.decide(event, base).pass, isTrue);
+      }
+      expect(g.stats['passed'], 150);
+    });
+
+    test('先检查再确认入队：发送失败不占用去重窗口', () {
+      final g = EventGovernor();
+      final e = ev(1, 'screen.ocr_ready', '番茄: 一段 OCR 内容');
+      expect(g.inspect(e, base).pass, isTrue);
+      // 失败时不调用 recordAccepted；相同事件必须还能重试。
+      final retry = g.inspect(e, base);
+      expect(retry.pass, isTrue);
+      expect(g.stats['passed'], isNull);
+      g.recordAccepted(e, bodyHash: retry.bodyHash);
+      expect(g.inspect(e, base + 1000).reason, 'merged');
+    });
+
+    test('近重复只在时间窗内、同事件类型内生效', () {
+      final g = EventGovernor(mergeWindowMs: 0, simhashWindowMs: 300000);
+      final e = ev(1, 'screen.ocr_ready', '番茄: 同一段正文');
+      expect(g.decide(e, base).pass, isTrue);
+      expect(g.decide(ev(2, 'screen.app_changed', '番茄: 同一段正文',
+          at: base + 1000), base + 1000).pass, isTrue);
+      expect(g.decide(ev(3, 'screen.ocr_ready', '番茄: 同一段正文',
+          at: base + 301000), base + 301000).pass, isTrue);
+    });
+
+    test('长时间使用时去重表容量有限', () {
+      final g = EventGovernor(mergeWindowMs: 0);
+      for (var i = 0; i < 520; i++) {
+        expect(g.decide(ev(i, 'screen.ocr_ready', 'App$i: 页面变化',
+                at: base + i * 100), base + i * 100).pass, isTrue);
+      }
+      // 最近事件仍被去重，已从缓存淘汰的旧 App 不再占用内存。
+      expect(g.decide(ev(521, 'screen.ocr_ready', 'App519: 页面变化',
+              at: base + 52000), base + 52000).reason, 'simhash_dup');
+      expect(g.decide(ev(522, 'screen.ocr_ready', 'App0: 页面变化',
+              at: base + 52000), base + 52000).pass, isTrue);
     });
 
     test('simhash64 稳定性与 hamming 语义', () {
