@@ -1,0 +1,2 @@
+# Python-only dependency for the V2 contract validator.
+jsonschema==4.26.0

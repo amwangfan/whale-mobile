@@ -11,9 +11,10 @@ Whale 端云协议 **V2**（`2.0-dev`）。本目录是 whale-mobile 与 whale-c
 校验：
 
 ```bash
-python3 tests/contract_validate.py   # v1 + v2 全量校验（正例/负例/交叉一致性）
+python3 -m pip install -r requirements-test.txt
+python3 tests/contract_validate.py   # V2 全量校验（正例/负例/交叉一致性 + daily/root 能力表）
 ```
 
-V1 冻结于 `contracts/v1/`，仅存档，不再演进。V2 相对 V1 的关键变化：回执状态机五终态（succeeded/failed/timeout/cancelled/unknown）、ID 前缀+ULID、能力单一名称空间、experience.event、run.trace.event、recording.*、错误码单表。
+V1 已从当前仓库移除，不再参与构建或运行。V2 的关键语义包括：回执状态机五终态（succeeded/failed/timeout/cancelled/unknown）、ID 前缀+ULID、能力单一名称空间、experience.event、run.trace.event、recording.*、错误码单表。
 
 **schema 子集约束**：core 侧校验器只实现 draft 2020-12 小子集，禁止使用 `$ref`/`$defs`/`if/then/else`/`oneOf`/`anyOf`/`allOf`/`patternProperties`/相对 `$id`。

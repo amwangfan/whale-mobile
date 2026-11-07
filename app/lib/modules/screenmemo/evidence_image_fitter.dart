@@ -1,6 +1,6 @@
 /// 证据图片帧预算压缩：把 ScreenMemo 返回的原图缩到合约单帧预算内。
 ///
-/// 依据 contracts/v1/PROTOCOL.md §2（单帧 ≤ 256KiB）。原图永不出设备；
+/// 依据 contracts/v2/PROTOCOL.md §2（单帧 ≤ 256KiB）。原图永不出设备；
 /// 云端只拿到适配帧预算的压缩副本，元数据标注 original_size_bytes。
 library;
 

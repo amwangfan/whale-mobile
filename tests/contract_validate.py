@@ -1,40 +1,25 @@
 #!/usr/bin/env python3
-"""whale-mobile 端云协议契约校验器（V2；V1 已随全量重构删除）。
+"""whale-mobile 端云协议 V2 契约校验器。
 
-依据 contracts/v1/PROTOCOL.md 与 contracts/v2/PROTOCOL.md（唯一事实源）：
+校验消息与对象黄金示例、负例、跨消息枚举一致性，以及 daily/root APK
+能力声明与 canonical schema 的一致性。
 
-V1（冻结，行为不变）：
-1. examples/ 下每个黄金示例必须通过 messages/ 下对应消息的 JSON Schema（draft 2020-12）。
-2. 三条硬编码负例必须失败。
-
-V2 增强：
-1. 正例双重校验（逐消息 schema + envelope）。
-2. 反向检查：messages/ 下每个 schema（除 envelope）必须有同名黄金示例。
-3. objects/*.schema.json 必须各有一个 objects/examples/<name>.json 正例并通过。
-4. 扩展负例（版本不符 / 删必填 / 错误 dir / ID 格式错误 / V1 状态词混入）。
-5. 交叉一致性：error.schema.json 的 code 枚举与 action.receipt.schema.json 的
-   error_code 枚举逐字一致；能力枚举满足 query ⊆ action ⊆ hello。
-
-用法：python3 tests/contract_validate.py
+用法：先安装 requirements-test.txt，再运行 python3 tests/contract_validate.py。
 退出码：0 = 全部通过；1 = 有失败；2 = 缺依赖。
 """
 import copy
 import json
 import os
+import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-VENDOR_DIR = os.path.join(ROOT, "tests", "_vendor")
-
-if os.path.isdir(VENDOR_DIR):
-    sys.path.insert(0, VENDOR_DIR)
 
 try:
     from jsonschema import Draft202012Validator
 except ImportError:
     print("FATAL: 需要 jsonschema 库。请执行：\n"
-          "  pip install --target tests/_vendor jsonschema\n"
-          "或在虚拟环境中安装 jsonschema 后运行。", file=sys.stderr)
+          "  python -m pip install -r requirements-test.txt", file=sys.stderr)
     sys.exit(2)
 
 
@@ -95,10 +80,6 @@ def validate_version(rep, version):
             continue
         rep.ok(label)
 
-    if version == "v1":
-        v1_negatives(rep, schemas, examples_dir)
-        return schemas
-
     # ---------- V2：反向检查 ----------
     for name in schemas:
         if name == "envelope":
@@ -138,29 +119,6 @@ def validate_version(rep, version):
     return schemas
 
 
-def v1_negatives(rep, schemas, examples_dir):
-    negatives = []
-    bad_hello = copy.deepcopy(load_json(os.path.join(examples_dir, "device.hello.json")))
-    bad_hello["v"] = "2.0"
-    bad_hello["payload"]["protocol_version"] = "2.0"
-    negatives.append(("neg v1: device.hello v=2.0（未知 major）", "device.hello", bad_hello))
-
-    bad_event = copy.deepcopy(load_json(os.path.join(examples_dir, "sensor.event.json")))
-    del bad_event["payload"]["event_id"]
-    negatives.append(("neg v1: sensor.event 缺 event_id", "sensor.event", bad_event))
-
-    bad_action = copy.deepcopy(load_json(os.path.join(examples_dir, "action.request.json")))
-    del bad_action["payload"]["idempotency_key"]
-    negatives.append(("neg v1: action.request 缺 idempotency_key", "action.request", bad_action))
-
-    for label, schema_name, instance in negatives:
-        errs = check(Draft202012Validator(schemas[schema_name]), instance)
-        if errs:
-            rep.ok(f"{label}（按预期拒绝：{errs[0].message[:60]}）")
-        else:
-            rep.fail(f"{label}: 应被拒绝却通过")
-
-
 def v2_negatives(rep, schemas, examples_dir):
     def ex(name):
         return load_json(os.path.join(examples_dir, name + ".json"))
@@ -193,7 +151,7 @@ def v2_negatives(rep, schemas, examples_dir):
     negatives.append(("neg v2: experience.event event_id 无 evt_ 前缀", "experience.event", bad))
 
     bad = copy.deepcopy(ex("device.confirm.request"))
-    bad["payload"]["device_id"] = "ba4bb14c75917cfc"  # 16 字符短串
+    bad["payload"]["device_id"] = "not-a-32-hex-device-id"
     negatives.append(("neg v2: confirm.request device_id 非 32-hex", "device.confirm.request", bad))
 
     bad = copy.deepcopy(ex("action.receipt"))
@@ -258,16 +216,38 @@ def v2_cross_checks(rep, schemas):
     else:
         rep.fail("v2 交叉检查失败：hello_ack 能力枚举与 hello 不一致")
 
+    # Android daily/root flavor 声明必须完整覆盖 canonical V2 能力枚举。
+    registry_path = os.path.join(
+        ROOT, "app", "android", "app", "src", "main", "kotlin",
+        "com", "wangfanlab", "whale", "CapabilityRegistry.kt")
+    try:
+        with open(registry_path, encoding="utf-8") as f:
+            registry_source = f.read()
+        def block_caps(name):
+            match = re.search(
+                rf"private val {name}\s*=\s*linkedSetOf\((.*?)\n\s*\)",
+                registry_source, re.S)
+            if not match:
+                raise ValueError(f"missing {name} linkedSetOf block")
+            return set(re.findall(r'"([^"]+)"', match.group(1)))
+        common_caps = block_caps("COMMON")
+        root_caps = block_caps("ROOT_ONLY")
+        if common_caps.isdisjoint(root_caps) and common_caps | root_caps == hello_caps:
+            rep.ok("v2 交叉检查：Android daily/root 能力并集与 hello schema 一致")
+        else:
+            rep.fail(
+                "v2 交叉检查失败：Android 能力表与 schema 不一致 "
+                f"missing={sorted(hello_caps - common_caps - root_caps)} "
+                f"extra={sorted((common_caps | root_caps) - hello_caps)} "
+                f"overlap={sorted(common_caps & root_caps)}")
+    except (OSError, ValueError) as exc:
+        rep.fail(f"v2 交叉检查失败：无法读取 Android CapabilityRegistry：{exc}")
+
 
 def main():
     rep = Reporter()
-    schema_counts = {}
-    for version in ("v1", "v2"):
-        base = os.path.join(ROOT, "contracts", version)
-        if not os.path.isdir(base):
-            continue
-        schemas = validate_version(rep, version)
-        schema_counts[version] = len(schemas)
+    schemas = validate_version(rep, "v2")
+    schema_counts = {"v2": len(schemas)}
 
     total = rep.passes + len(rep.failures)
     print()

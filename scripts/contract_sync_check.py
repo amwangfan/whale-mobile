@@ -1,26 +1,25 @@
 #!/usr/bin/env python3
-"""跨仓契约漂移校验（issue #46）。
+"""跨仓 V2 契约漂移校验（issue #46）。
 
-逐文件比较两个 checkout 的 ``contracts/v1/`` 约定范围：
+逐文件比较两个 checkout 的 ``contracts/v2/`` 约定范围：
 
 - ``PROTOCOL.md``
 - ``messages/*.schema.json``
+- ``objects/*.schema.json``
 - ``examples/*.json``
+- ``objects/examples/*.json``
 
-canonical source 是 **whale-mobile**（``contracts/v1/README.md`` 与
-``docs/devices.md`` 已声明）；本脚本只做双向逐文件对比，不区分方向——
-任一侧多了文件、缺了文件或内容不同都算漂移，输出逐文件差异并以退出码 1
-失败。README.md 等仓内元文档不在校验范围内。
+canonical source 是 **whale-mobile**（``contracts/v2/README.md`` 与
+``docs/devices.md`` 已声明）。任一侧多文件、缺文件或内容不同都算漂移。
+旧 V1 已退役，不再参与比较。
 
 用法::
 
     python3 scripts/contract_sync_check.py --core /path/whale-core \
         --mobile /path/whale-mobile
-    python3 scripts/contract_sync_check.py --a /path/a --b /path/b  # 通用
+    python3 scripts/contract_sync_check.py --a /path/a --b /path/b
 
-CI 里先按 ref checkout 两个仓到本地路径再调用本脚本；合并时序造成的
-假失败由流程约束（先更新 canonical，再同步 mirror，最后以同一批次 refs
-联合验收），脚本本身不做任何豁免。
+CI 里先按同一批次 ref checkout 两个仓到本地路径再调用本脚本。
 """
 
 from __future__ import annotations
@@ -31,46 +30,41 @@ import sys
 from pathlib import Path
 
 SCOPE_FILES = ("PROTOCOL.md",)
-SCOPE_GLOBS = ("messages/*.schema.json", "examples/*.json")
-# v2 起增加 objects 合同目录（schema + 正例）
-SCOPE_GLOBS_V2 = SCOPE_GLOBS + ("objects/*.schema.json", "objects/examples/*.json")
-VERSIONS = ("v1", "v2")  # v1 目录已删除的版本里自动跳过
+SCOPE_GLOBS = (
+    "messages/*.schema.json",
+    "objects/*.schema.json",
+    "examples/*.json",
+    "objects/examples/*.json",
+)
 
 
-def collect(root: Path, version: str) -> "dict[str, Path]":
-    base = root / "contracts" / version
+def collect(root: Path) -> "dict[str, Path]":
+    base = root / "contracts" / "v2"
     found: dict[str, Path] = {}
-    if not base.is_dir():
-        return found
     for name in SCOPE_FILES:
-        p = base / name
-        if p.is_file():
-            found[name] = p
-    globs = SCOPE_GLOBS_V2 if version != "v1" else SCOPE_GLOBS
-    for pattern in globs:
-        for p in sorted(base.glob(pattern)):
-            found[str(p.relative_to(base))] = p
+        path = base / name
+        if path.is_file():
+            found[name] = path
+    for pattern in SCOPE_GLOBS:
+        for path in sorted(base.glob(pattern)):
+            found[str(path.relative_to(base))] = path
     return found
 
 
 def compare(a_root: Path, b_root: Path) -> "tuple[list[str], int]":
+    a_files = collect(a_root)
+    b_files = collect(b_root)
     problems: list[str] = []
-    total = 0
-    for version in VERSIONS:
-        a_files = collect(a_root, version)
-        b_files = collect(b_root, version)
-        if not a_files and not b_files:
-            continue  # 两侧都没有该版本（如旧 core 尚无 v2 镜像）不算漂移
-        total += len(set(a_files) | set(b_files))
-        for rel in sorted(set(a_files) | set(b_files)):
-            in_a, in_b = rel in a_files, rel in b_files
-            tag = f"contracts/{version}/{rel}"
-            if in_a and not in_b:
-                problems.append(f"ONLY-IN-A  {tag}")
-            elif in_b and not in_a:
-                problems.append(f"ONLY-IN-B  {tag}")
-            elif not filecmp.cmp(a_files[rel], b_files[rel], shallow=False):
-                problems.append(f"DIFFERS    {tag}")
+    total = len(set(a_files) | set(b_files))
+    for rel in sorted(set(a_files) | set(b_files)):
+        in_a, in_b = rel in a_files, rel in b_files
+        tag = f"contracts/v2/{rel}"
+        if in_a and not in_b:
+            problems.append(f"ONLY-IN-A  {tag}")
+        elif in_b and not in_a:
+            problems.append(f"ONLY-IN-B  {tag}")
+        elif not filecmp.cmp(a_files[rel], b_files[rel], shallow=False):
+            problems.append(f"DIFFERS    {tag}")
     return problems, total
 
 
@@ -102,7 +96,7 @@ def main(argv: "list[str] | None" = None) -> int:
             "whale-core 镜像；不要两侧分别改。"
         )
         return 1
-    print(f"ok: contracts v1+v2 范围内 {total} 个文件两侧一致")
+    print(f"ok: contracts/v2 范围内 {total} 个文件两侧一致")
     return 0
 
 

@@ -232,3 +232,16 @@ WM-08..WM-15：not_started
 - Mobile：WssClientV2（握手/五终态回执/幂等绝不重放）+ ReceiptDispatcherV2 + EventOutboxV2 加密队列 + notification2 原生通知（6 渠道/审批按钮/深链）+ agent2 动作族（§8 stale 三判据）+ recording（MediaProjection，仅 root）+ Flutter features（聊天/感知/通知/我的）
 - **真机实测**：nova-daily 与 leaf5-root 双双 embedded WSS 上线（wss 8443 / ws 8192 两路）；leaf5-root 经生产通道完成 device.shell(uid=0)/app.launch/observe(70 元素+截图引用)/key/notification.post；notification.event 下行→端侧原生展示→displayed 回执；GUI Agent 经 embedded WSS 完成任务（设置→电池 92% 回读）
 - 已知边界：nova（daily 版）observe 受限于 GSI su 对 app uid 不可用（诚实 failed/unavailable）；release R8 需 keep agent2/recording（proguard-rules.pro）；leaf5 走 ws:// tailnet IP（MagicDNS 在 BOOX 不可用）
+
+
+---
+
+## V2 集成收口记录（2026-11-08）
+
+- 协议事实源统一为 `contracts/v2/`；契约校验器只校验 V2，不再尝试加载已删除的 V1 目录。
+- 契约校验新增 Android `CapabilityRegistry.kt` 对照：daily 与 root 能力集合的并集必须完整覆盖 V2 hello schema，且两组不重叠。
+- Python 契约校验依赖固定在仓库根 `requirements-test.txt`；`tests/_vendor` 的 vendored site-packages 已移除。
+- 旧 V1 `server/dev_gateway.py`、配套测试和启动脚本已退役；设备 WSS/REST 生产实现归 whale-core。服务端音频桥保留在 `server/audio-bridge/`。
+- 旧 gateway 测试覆盖的握手/签名、心跳、事件去重、query/action 回执、幂等、撤销、未知 major、schema 错误和 device.confirm 已在 Core V2 `tests/test_embedded_wss.py` 中有对应测试；Mobile 不再保留针对已删除 V1 schema 的运行测试。
+- Debug 构建允许开发联调明文连接；release 默认仅允许 TLS。网络安全配置不再列出个人 tailnet IP。
+- 本次是仓库代码/文档整理，没有新增真机测试记录；11 月 7 日双机 V2 验收仍是最近一次设备实测证据。
