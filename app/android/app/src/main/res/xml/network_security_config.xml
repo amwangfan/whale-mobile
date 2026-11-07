@@ -1,13 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 网络安全配置（contracts/v2 §1 传输拓扑）：
-     默认禁明文；仅 tailnet CGNAT 段（WireGuard 已加密）允许 ws:// 联调态。
-     生产链路为 wss://（tailscale serve 终结 TLS），不受影响。 -->
+<!-- Release 默认仅允许 TLS。Debug 通过 src/debug/res/xml 的同名资源覆盖，
+     允许开发环境 ws:// 联调；不在仓库硬编码个人 tailnet 地址。 -->
 <network-security-config>
     <base-config cleartextTrafficPermitted="false" />
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="false">100.64.85.85</domain>
-        <domain includeSubdomains="false">100.92.91.85</domain>
-        <domain includeSubdomains="false">100.102.110.11</domain>
-        <domain includeSubdomains="false">100.114.93.90</domain>
-    </domain-config>
 </network-security-config>
