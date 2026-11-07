@@ -31,7 +31,7 @@ interface AccessibilityDeviceControl {
     fun execute(capability: String, args: Map<String, Any?>, point: Pair<Int, Int>?): Result
     fun foregroundPackage(): String?
     /** 非 Root 下仅列出 Android 允许查询的 launcher 应用，不宣称是完整安装清单。 */
-    fun listLaunchableApps(): List<String>?
+    fun listLaunchableApps(filter: String): List<String>?
 }
 
 class AndroidAccessibilityDeviceControl(private val context: Context) : AccessibilityDeviceControl {
@@ -152,12 +152,18 @@ class AndroidAccessibilityDeviceControl(private val context: Context) : Accessib
         }
     }
 
-    override fun listLaunchableApps(): List<String>? {
+    override fun listLaunchableApps(filter: String): List<String>? {
         // 不依赖无障碍节点读权限；Android 11+ 需要 manifest <queries> 声明 launcher 查询。
         return try {
             val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
             @Suppress("DEPRECATION")
             context.packageManager.queryIntentActivities(intent, 0)
+                .filter { info ->
+                    val isSystem = (info.activityInfo?.applicationInfo?.flags ?: 0) and
+                        android.content.pm.ApplicationInfo.FLAG_SYSTEM != 0
+                    filter == "all" || (filter == "system" && isSystem) ||
+                        (filter == "third_party" && !isSystem)
+                }
                 .mapNotNull { it.activityInfo?.packageName }
                 .distinct().sorted()
         } catch (_: Exception) {
