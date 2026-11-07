@@ -128,7 +128,7 @@
              与独立 ScreenMemo 采集互斥（conflict_standalone_screenmemo 自动跳过）。 -->
         <service
             android:name="com.wangfanlab.whale.modules.capture.ShadowCaptureService"
-            android:label="Whale 影子采集"
+            android:label="Whale 屏幕感知与操控"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
             android:exported="true">
             <intent-filter>
@@ -178,6 +178,11 @@
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- 无 Root app.list / app.launch 仅查询有桌面入口的 App，不申请 QUERY_ALL_PACKAGES。 -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
         </intent>
         <!-- safe_action open_deeplink：http(s) 处理器可见性（resolveActivity 校验用；
              带 LAUNCHER 入口的 App 系统默认可见，launch_app 无需额外声明） -->
