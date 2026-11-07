@@ -73,6 +73,26 @@ class Agent2ModuleTest {
         }
     }
 
+    private class FakeAccessibility : AccessibilityDeviceControl {
+        var enabled = true
+        var nextResult = AccessibilityDeviceControl.Result(
+            AccessibilityDeviceControl.Status.SUCCEEDED, "模拟无障碍完成",
+        )
+        val calls = ConcurrentLinkedQueue<String>()
+        override fun available() = enabled
+        override fun dumpUiTree(): String? = null
+        override fun foregroundPackage(): String? = null
+        override fun listLaunchableApps(filter: String): List<String>? =
+            listOf("com.example.launcher", "com.example.gallery")
+        override fun execute(
+            capability: String, args: Map<String, Any?>, point: Pair<Int, Int>?,
+        ): AccessibilityDeviceControl.Result {
+            calls.add(capability)
+            return nextResult
+        }
+    }
+
+    private lateinit var fakeAccessibility: FakeAccessibility
     private lateinit var fakeShell: FakeShell
     private var estop = false
     private var uiTree: String? = null
@@ -86,6 +106,7 @@ class Agent2ModuleTest {
     ): Agent2Module = Agent2Module(
         context = context,
         shell = fakeShell.toRunner(),
+        accessibility = fakeAccessibility,
         uiTreeSource = Agent2Module.UiTreeSource { uiTree },
         screenshotSource = Agent2Module.ScreenshotSource { shotFile },
         foregroundProbe = Agent2Module.ForegroundProbe { foreground },
@@ -105,6 +126,7 @@ class Agent2ModuleTest {
         uplink.clear()
         now = 1_794_052_800_000L
         fakeShell = FakeShell()
+        fakeAccessibility = FakeAccessibility()
         // 默认 root 可用（ensureRoot 探测 `id` → uid=0）
         fakeShell.route("id", AgentShell.Result(0, "uid=0(root) gid=0(root)", "", false))
         estop = false
@@ -491,12 +513,57 @@ class Agent2ModuleTest {
     }
 
     @Test
-    fun `daily edition keeps common action handlers`() {
+    fun `daily edition taps via accessibility without calling su`() {
         newModule(rootEdition = false).registerTo(dispatcher)
         val t = handleAndTerminal(request("device.tap", mapOf("x" to 1L, "y" to 1L)))
-        // daily 构建 handler 存在（尝试执行；root 探测可能失败→unavailable，但绝不是缺 handler 的不可用语义区分）
-        assertTrue(t["status"] in setOf("succeeded", "failed"))
-        assertTrue(fakeShell.calls.isNotEmpty())
+        assertEquals("succeeded", t["status"])
+        assertTrue(fakeShell.calls.isEmpty())
+        assertEquals(listOf("device.tap"), fakeAccessibility.calls.toList())
+        assertEquals("accessibility", t["provider_ref"])
+    }
+
+    @Test
+    fun `daily edition returns unavailable when accessibility is disabled`() {
+        fakeAccessibility.enabled = false
+        newModule(rootEdition = false).registerTo(dispatcher)
+        val t = handleAndTerminal(request("device.swipe",
+            mapOf("x" to 1L, "y" to 1L, "x2" to 2L, "y2" to 2L)))
+        assertEquals("failed", t["status"])
+        assertEquals("unavailable", t["error_code"])
+        assertTrue(fakeShell.calls.isEmpty())
+    }
+
+    @Test
+    fun `root edition keeps root as priority for common UI actions`() {
+        newModule(rootEdition = true).registerTo(dispatcher)
+        val t = handleAndTerminal(request("device.tap", mapOf("x" to 4L, "y" to 9L)))
+        assertEquals("succeeded", t["status"])
+        assertTrue(fakeShell.calls.any { it.command == "input tap 4 9" })
+        assertTrue(fakeAccessibility.calls.isEmpty())
+    }
+
+    @Test
+    fun `root unavailable falls back to accessibility before dispatch`() {
+        fakeShell.route("id", AgentShell.Result(1, "su unavailable", "", false))
+        newModule(rootEdition = true).registerTo(dispatcher)
+        val t = handleAndTerminal(request("device.tap", mapOf("x" to 4L, "y" to 9L)))
+        assertEquals("succeeded", t["status"])
+        assertEquals("accessibility", t["provider_ref"])
+        assertTrue(fakeShell.calls.none { it.command.startsWith("input tap") })
+    }
+
+    @Test
+    fun `accessibility ambiguous result is unknown and not replayed on root`() {
+        fakeShell.route("id", AgentShell.Result(1, "su unavailable", "", false))
+        fakeAccessibility.nextResult = AccessibilityDeviceControl.Result(
+            AccessibilityDeviceControl.Status.UNKNOWN, "dispatchGesture 超时",
+        )
+        newModule(rootEdition = true).registerTo(dispatcher)
+        val t = handleAndTerminal(request("device.tap", mapOf("x" to 5L, "y" to 5L)))
+        assertEquals("unknown", t["status"])
+        assertEquals("accessibility", t["provider_ref"])
+        assertEquals(1, fakeAccessibility.calls.size)
+        assertTrue(fakeShell.calls.none { it.command.startsWith("input tap") })
     }
 
     @Test
