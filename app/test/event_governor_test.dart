@@ -161,6 +161,19 @@ void main() {
           at: base + 301000), base + 301000).pass, isTrue);
     });
 
+    test('长时间使用时去重表容量有限', () {
+      final g = EventGovernor(mergeWindowMs: 0);
+      for (var i = 0; i < 520; i++) {
+        expect(g.decide(ev(i, 'screen.ocr_ready', 'App$i: 页面变化'),
+                        base + i * 1000).pass, isTrue);
+      }
+      // 最近事件仍被去重，已从缓存淘汰的旧 App 不再占用内存。
+      expect(g.decide(ev(521, 'screen.ocr_ready', 'App519: 页面变化',
+              at: base + 520000), base + 520000).reason, 'simhash_dup');
+      expect(g.decide(ev(522, 'screen.ocr_ready', 'App0: 页面变化',
+              at: base + 520000), base + 520000).pass, isTrue);
+    });
+
     test('simhash64 稳定性与 hamming 语义', () {
       final h1 = EventGovernor.simhash64('一样的文本内容');
       final h2 = EventGovernor.simhash64('文本完全不同的内容哦');
