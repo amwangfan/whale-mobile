@@ -29,6 +29,9 @@ def capability_tables(root: Path) -> dict[str, tuple[str, ...]]:
         return tuple(result)
 
     all_caps = values("device.hello", "capabilities", array=True)
+    accepted = values("device.hello_ack", "accepted_capabilities", array=True)
+    if set(accepted) != set(all_caps):
+        raise ValueError("device.hello and hello_ack capability enums disagree")
     action = values("action.request", "capability")
     query = values("sensor.query", "operation")
     authorized = values("action.request", "authorized_scope", array=True)

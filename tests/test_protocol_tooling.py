@@ -30,7 +30,7 @@ def test_defaults_do_not_implicitly_grant_new_device_scopes():
 
 @pytest.fixture
 def fixture_root(tmp_path, monkeypatch):
-    for name in ('device.hello', 'action.request', 'sensor.query'):
+    for name in ('device.hello', 'device.hello_ack', 'action.request', 'sensor.query'):
         target = tmp_path / 'contracts/v1/messages' / f'{name}.schema.json'
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(ROOT / 'contracts/v1/messages' / target.name, target)
@@ -72,3 +72,27 @@ def test_bad_schema_enum_cannot_generate(fixture_root, invalid):
     path.write_text(json.dumps(schema), encoding='utf-8')
     with pytest.raises(ValueError):
         generator.capability_tables(fixture_root)
+
+
+def test_handshake_capability_drift_cannot_generate(fixture_root):
+    path = fixture_root / 'contracts/v1/messages/device.hello_ack.schema.json'
+    schema = json.loads(path.read_text(encoding='utf-8'))
+    schema['properties']['payload']['properties']['accepted_capabilities']['items']['enum'].pop()
+    path.write_text(json.dumps(schema), encoding='utf-8')
+    with pytest.raises(ValueError, match='hello_ack'):
+        generator.capability_tables(fixture_root)
+
+
+@pytest.mark.parametrize('invalid', ['malformed', 'missing-example'])
+def test_contract_gate_checks_schemas_and_example_coverage(tmp_path, monkeypatch, invalid):
+    spec = importlib.util.spec_from_file_location('contract_validation', ROOT / 'tests/contract_validate.py')
+    validator = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(validator)
+    messages = tmp_path / 'messages'
+    shutil.copytree(ROOT / 'contracts/v1/messages', messages)
+    if invalid == 'malformed':
+        (messages / 'action.request.schema.json').write_text('{"type":"not-a-json-schema-type"}', encoding='utf-8')
+    else:
+        (messages / 'future.schema.json').write_text('{"type":"object"}', encoding='utf-8')
+    monkeypatch.setattr(validator, 'MESSAGES_DIR', str(messages))
+    assert validator.main() == 1
