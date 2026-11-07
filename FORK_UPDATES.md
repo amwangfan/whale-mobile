@@ -2,7 +2,9 @@
 
 ## 第 03 批：设备互联整理
 
-状态：实现和本机联合验证完成。日期：2026-11-07。
+状态：实现和本机联合验证完成，已推送。日期：2026-11-07。
+
+对应提交：[Mobile 637f3e6](https://github.com/dreaminutes/whale-mobile/commit/637f3e6)、[Core 9afddd4](https://github.com/dreaminutes/whale-core/commit/9afddd4)。
 
 - 用协议生成能力表，统一 Python 参考网关、Kotlin、Dart 与配套 Core 的词表。
 - 参考网关认识眼镜与自主体 scope；保留旧默认配对的 9 个 scope，额外能力仍需显式授权。
