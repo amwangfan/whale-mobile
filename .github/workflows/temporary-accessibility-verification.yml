@@ -19,12 +19,12 @@ jobs:
           cache: true
       - run: flutter pub get
         working-directory: app
-      - run: ./gradlew :app:testDailyDebugUnitTest :app:testRootDebugUnitTest
-        working-directory: app/android
       - run: flutter build apk --debug --flavor daily
         working-directory: app
       - run: flutter build apk --debug --flavor root
         working-directory: app
+      - run: ./gradlew :app:testDailyDebugUnitTest :app:testRootDebugUnitTest
+        working-directory: app/android
       - run: flutter analyze
         working-directory: app
       - run: flutter test
