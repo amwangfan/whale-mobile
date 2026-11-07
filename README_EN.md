@@ -10,7 +10,7 @@ Whale's Android body and senses: perception, notifications, VoIP, glasses intera
 
 </div>
 
-whale-mobile is the Android node for [whale-core](https://github.com/amwangfan/whale-core). The phone collects signals, presents information, handles real-time interactions and executes actions. Core provides persona, memory, decisions and multi-device orchestration. They communicate through the versioned [contracts/v1](contracts/v1/) protocol.
+whale-mobile is the Android node for [whale-core](https://github.com/amwangfan/whale-core). The phone collects signals, presents information, handles real-time interactions and executes actions. Core provides persona, memory, decisions and multi-device orchestration. They communicate through the versioned [contracts/v2](contracts/v2/) protocol.
 
 The goal is not another chat app: Whale gains useful senses and a way to act. A daily-use phone and a dedicated Root phone can have different permission profiles.
 
@@ -32,14 +32,14 @@ Core has an Android agent-loop implementation with simulated tests. Production d
 | Location | Purpose |
 | --- | --- |
 | [`app/lib/`](app/lib/) | Flutter UI, module controls, permissions and transport client |
-| [`app/android/app/src/main/kotlin/com/wangfanlab/whale/runtime/`](app/android/app/src/main/kotlin/com/wangfanlab/whale/runtime/) | NodeRuntime, NodeService, startup/background recovery |
+| [`app/android/app/src/main/kotlin/com/wangfanlab/whale/runtime/v2/`](app/android/app/src/main/kotlin/com/wangfanlab/whale/runtime/) | NodeRuntimeV2, NodeServiceV2, startup/background recovery |
 | [`app/android/app/src/main/kotlin/com/wangfanlab/whale/modules/`](app/android/app/src/main/kotlin/com/wangfanlab/whale/modules/) | Native agent, capture, glasses, notifications, VoIP and related modules |
-| [`app/android/app/src/main/kotlin/com/wangfanlab/whale/transport/`](app/android/app/src/main/kotlin/com/wangfanlab/whale/transport/) | Identity, WSS, offline queue and Flutter bridge |
-| [`contracts/v1/`](contracts/v1/) | Device/cloud protocol, schemas and examples |
+| [`app/android/app/src/main/kotlin/com/wangfanlab/whale/transport/v2/`](app/android/app/src/main/kotlin/com/wangfanlab/whale/transport/) | V2 identity, WSS, offline queue and Flutter bridge |
+| [`contracts/v2/`](contracts/v2/) | Device/cloud protocol, schemas and examples |
 | [`server/`](server/) | Server-side audio bridge and integration tools, not bundled in the Android APK |
 | [`docs/`](docs/) | Architecture, device tests, deployment and migration |
 
-Top-level `modules/` and `transport/` also contain design or standalone module material; the primary Android runtime implementation is under `app/android/app/src/main/`.
+Top-level `modules/` and `transport/` also contain historical design or standalone module material; the current Android host runtime is assembled under `app/android/app/src/main/`. The old standalone `modules/voip/` project remains tracked for cleanup in #35 and is not the host runtime entrypoint.
 
 ## Run and develop
 

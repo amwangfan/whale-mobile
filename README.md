@@ -10,7 +10,7 @@
 
 </div>
 
-whale-mobile 是 [whale-core](https://github.com/amwangfan/whale-core) 的 Android 节点。手机负责采集、展示、实时交互和执行，Core 负责人格、记忆、任务决策和多设备编排。两侧通过 [contracts/v1](contracts/v1/) 中的版本化协议通信。
+whale-mobile 是 [whale-core](https://github.com/amwangfan/whale-core) 的 Android 节点。手机负责采集、展示、实时交互和执行，Core 负责人格、记忆、任务决策和多设备编排。两侧通过 [contracts/v2](contracts/v2/) 中的版本化协议通信。
 
 目标不是把手机做成另一个聊天 App，而是让鲸鱼拥有可使用的感官和身体：能感知日常，给用户提示，也能在专用设备上自主观察和操作。普通手机与专用 Root 手机可以采用不同权限配置。
 
@@ -32,14 +32,14 @@ Core 已有 Android 自主体编排器与模拟测试，但生产决策入口和
 | 位置 | 用途 |
 | --- | --- |
 | [`app/lib/`](app/lib/) | Flutter 主界面、模块开关、权限引导、传输客户端 |
-| [`app/android/app/src/main/kotlin/com/wangfanlab/whale/runtime/`](app/android/app/src/main/kotlin/com/wangfanlab/whale/runtime/) | NodeRuntime、NodeService、重启与后台恢复 |
+| [`app/android/app/src/main/kotlin/com/wangfanlab/whale/runtime/v2/`](app/android/app/src/main/kotlin/com/wangfanlab/whale/runtime/) | NodeRuntimeV2、NodeServiceV2、重启与后台恢复 |
 | [`app/android/app/src/main/kotlin/com/wangfanlab/whale/modules/`](app/android/app/src/main/kotlin/com/wangfanlab/whale/modules/) | agent / capture / glasses / notifications / notificationread / voip / safeaction 等实际原生实现 |
-| [`app/android/app/src/main/kotlin/com/wangfanlab/whale/transport/`](app/android/app/src/main/kotlin/com/wangfanlab/whale/transport/) | 设备身份、WSS、离线队列、Flutter 原生桥 |
-| [`contracts/v1/`](contracts/v1/) | 端云协议、Schema、示例（与 Core 同步） |
+| [`app/android/app/src/main/kotlin/com/wangfanlab/whale/transport/v2/`](app/android/app/src/main/kotlin/com/wangfanlab/whale/transport/) | V2 设备身份、WSS、离线队列、Flutter 原生桥 |
+| [`contracts/v2/`](contracts/v2/) | 端云协议、Schema、示例（与 Core 同步） |
 | [`server/`](server/) | 服务端音频桥与联调工具，不是 Android APK 内容 |
 | [`docs/`](docs/) | 架构、真机验收、部署与迁移记录 |
 
-仓库顶层的 `modules/`、`transport/` 等目录包含设计与独立模块资料；目前 Android 运行时的主要实现位于 `app/android/app/src/main/`，开发时请以实际装配关系为准。
+仓库顶层的 `modules/`、`transport/` 等目录仍包含历史设计或独立模块资料；当前 Android 宿主以 `app/android/app/src/main/` 的 V2 装配关系为准。`modules/voip/` 的旧独立工程仍待清理（#35），不是宿主运行时入口。
 
 ## 运行与开发
 
