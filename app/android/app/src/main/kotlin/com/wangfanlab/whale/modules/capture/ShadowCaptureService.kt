@@ -94,7 +94,10 @@ class ShadowCaptureService : AccessibilityService() {
                     CaptureStats.noteFailure(-99)
                     android.util.Log.w("WhaleCapture", "tick 异常（已吞没，继续运行）", t)
                 }
-                worker?.postDelayed(this, TICK_MS)
+                // 无障碍仅供 AI 操控时不要每秒唤醒采集线程。
+                val delay = if (CaptureModule.isEnabled(this@ShadowCaptureService))
+                    TICK_MS else IDLE_TICK_MS
+                worker?.postDelayed(this, delay)
             }
         }
         tickRunnable = r
@@ -195,7 +198,8 @@ class ShadowCaptureService : AccessibilityService() {
     }
 
     companion object {
-        private const val TICK_MS = 1_000L // tick 频率；采集间隔由 CaptureDecider.intervalMs 控制
+        private const val TICK_MS = 1_000L
+        private const val IDLE_TICK_MS = 5_000L // tick 频率；采集间隔由 CaptureDecider.intervalMs 控制
 
         @Volatile
         var serviceInstance: ShadowCaptureService? = null
