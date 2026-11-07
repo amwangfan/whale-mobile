@@ -32,9 +32,9 @@ Core 已有 Android 自主体编排器与模拟测试，但生产决策入口和
 | 位置 | 用途 |
 | --- | --- |
 | [`app/lib/`](app/lib/) | Flutter 主界面、模块开关、权限引导、传输客户端 |
-| [`app/android/app/src/main/kotlin/com/wangfanlab/whale/runtime/v2/`](app/android/app/src/main/kotlin/com/wangfanlab/whale/runtime/) | NodeRuntimeV2、NodeServiceV2、重启与后台恢复 |
+| [`app/android/app/src/main/kotlin/com/wangfanlab/whale/runtime/v2/`](app/android/app/src/main/kotlin/com/wangfanlab/whale/runtime/v2/) | NodeRuntimeV2、NodeServiceV2、重启与后台恢复 |
 | [`app/android/app/src/main/kotlin/com/wangfanlab/whale/modules/`](app/android/app/src/main/kotlin/com/wangfanlab/whale/modules/) | agent / capture / glasses / notifications / notificationread / voip / safeaction 等实际原生实现 |
-| [`app/android/app/src/main/kotlin/com/wangfanlab/whale/transport/v2/`](app/android/app/src/main/kotlin/com/wangfanlab/whale/transport/) | V2 设备身份、WSS、离线队列、Flutter 原生桥 |
+| [`app/android/app/src/main/kotlin/com/wangfanlab/whale/transport/v2/`](app/android/app/src/main/kotlin/com/wangfanlab/whale/transport/v2/) | V2 设备身份、WSS、离线队列、Flutter 原生桥 |
 | [`contracts/v2/`](contracts/v2/) | 端云协议、Schema、示例（与 Core 同步） |
 | [`server/`](server/) | 服务端音频桥与联调工具，不是 Android APK 内容 |
 | [`docs/`](docs/) | 架构、真机验收、部署与迁移记录 |
