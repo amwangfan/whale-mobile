@@ -242,5 +242,6 @@ WM-08..WM-15：not_started
 - 契约校验新增 Android `CapabilityRegistry.kt` 对照：daily 与 root 能力集合的并集必须完整覆盖 V2 hello schema，且两组不重叠。
 - Python 契约校验依赖固定在仓库根 `requirements-test.txt`；`tests/_vendor` 的 vendored site-packages 已移除。
 - 旧 V1 `server/dev_gateway.py`、配套测试和启动脚本已退役；设备 WSS/REST 生产实现归 whale-core。服务端音频桥保留在 `server/audio-bridge/`。
+- 旧 gateway 测试覆盖的握手/签名、心跳、事件去重、query/action 回执、幂等、撤销、未知 major、schema 错误和 device.confirm 已在 Core V2 `tests/test_embedded_wss.py` 中有对应测试；Mobile 不再保留针对已删除 V1 schema 的运行测试。
 - Debug 构建允许开发联调明文连接；release 默认仅允许 TLS。网络安全配置不再列出个人 tailnet IP。
 - 本次是仓库代码/文档整理，没有新增真机测试记录；11 月 7 日双机 V2 验收仍是最近一次设备实测证据。
