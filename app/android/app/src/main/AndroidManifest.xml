@@ -14,6 +14,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- contracts/v2 §12.2：MediaProjection 内置录制（Root 版）前台服务类型（API 34+ 必需） -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-permission android:name="android.permission.VIBRATE" />
@@ -22,6 +24,7 @@
          dataSync 前台服务，届时降级为进程内连接，不绕过） -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <application
+        android:networkSecurityConfig="@xml/network_security_config"
         android:label="Whale"
         android:name=".WhaleApp"
         android:icon="@mipmap/ic_launcher">
@@ -54,18 +57,18 @@
             android:value="2" />
 
         <!-- ==================== 节点服务（BG-01，WSS 长连前台载体） ==================== -->
-        <!-- WSS/设备身份/离线队列归 Application 级 NodeRuntime 单例持有；
-             本服务只是前台载体（可见常驻通知 + 「停止」动作可立即断开）。
-             仅由前台场景显式启动（UI connect / 用户开关），不做后台隐式拉起；
-             Android 15 dataSync 时长受限时按系统降级，不绕过。 -->
+        <!-- contracts/v2 运行时前台载体（NodeRuntimeV2；v1 栈已下线，本服务为唯一
+             前台载体）。WSS/设备身份/上行队列归 Application 级 NodeRuntimeV2 单例
+             持有；仅由前台场景显式启动（UI connectV2 / 用户开关），不做后台隐式
+             拉起；Android 15 dataSync 时长受限时按系统降级，不绕过。 -->
         <service
-            android:name="com.wangfanlab.whale.runtime.NodeService"
+            android:name="com.wangfanlab.whale.runtime.v2.NodeServiceV2"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
-        <!-- BG-02：开机恢复入口（系统保护广播，无需运行时权限） -->
+        <!-- BG-02：开机恢复入口（系统保护广播，无需运行时权限；v2 面） -->
         <receiver
-            android:name="com.wangfanlab.whale.runtime.BootReceiver"
+            android:name="com.wangfanlab.whale.runtime.v2.BootReceiverV2"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
@@ -135,6 +138,21 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/whale_capture_accessibility" />
         </service>
+
+        <!-- ==================== 屏幕录制模块（contracts/v2 §12.2，Root 版能力 device.screen.record） ==================== -->
+        <!-- MediaProjection 录制前台载体：可见通知 + 通知「停止」入口；
+             能力注册按构建变体门控（daily 构建不注册 handler），服务本身两变体声明。 -->
+        <service
+            android:name="com.wangfanlab.whale.modules.recording.RecordingService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection" />
+
+        <!-- ==================== 原生通知模块 v2（N0，notification2） ==================== -->
+        <!-- 通知按钮/点击/划掉入口。exported=false：只收本应用 PendingIntent 的显式广播；
+             无 intent-filter，Flutter/Service 不运行时系统也能按显式组件拉起进程处理。 -->
+        <receiver
+            android:name="com.wangfanlab.whale.modules.notification2.NotificationActionReceiver"
+            android:exported="false" />
 
         <!-- ==================== 通知监听模块（B3 前半，phone.notification.read） ==================== -->
         <!-- 独立可选模块（whale_modules/notification_read_enabled 默认 false）；

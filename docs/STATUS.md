@@ -220,3 +220,15 @@ WM-08..WM-15：not_started
 - 仓已公开：https://github.com/amwangfan/whale-mobile（4 个语义化提交；细粒度历史保留在本地 legacy-history 分支）
 - 发布前泄露扫描：全历史无 API key/私钥/凭据/QQ 号；真实 IP（tailnet 100.x、东京公网）已置换占位符；密钥/签名/测量日志均不入库
 - 推送前全量验证：契约 18/18、flutter 81/81、JUnit 83、gateway 10/10、debug 构建通过
+
+---
+
+## v2 大改版（2026-11-07，用户决策：v1 全部删除不兼容）
+
+- 状态：**device-tested**（leaf5-root + nova-daily 双机真机）
+- contracts/v2：唯一协议事实源（26 消息 + 8 对象 + 通知子协议 §13）；校验 71/71；双仓同步脚本 v2-only
+- 双 APK：daily/root productFlavors；CapabilityRegistry 按 BuildConfig.FLAVOR 注册（root 独占 shell/file/logcat/app.install/screen.record 等 8 项）
+- Core：/api/v2/devices/ws（embedded_wss）；聊天 REST v2（会话/消息/附件 att_/SSE）；NotificationGateway 装配 + POST /devices/{id}/notify；v1 gateway/agent_loop/legacy bridge 全删
+- Mobile：WssClientV2（握手/五终态回执/幂等绝不重放）+ ReceiptDispatcherV2 + EventOutboxV2 加密队列 + notification2 原生通知（6 渠道/审批按钮/深链）+ agent2 动作族（§8 stale 三判据）+ recording（MediaProjection，仅 root）+ Flutter features（聊天/感知/通知/我的）
+- **真机实测**：nova-daily 与 leaf5-root 双双 embedded WSS 上线（wss 8443 / ws 8192 两路）；leaf5-root 经生产通道完成 device.shell(uid=0)/app.launch/observe(70 元素+截图引用)/key/notification.post；notification.event 下行→端侧原生展示→displayed 回执；GUI Agent 经 embedded WSS 完成任务（设置→电池 92% 回读）
+- 已知边界：nova（daily 版）observe 受限于 GSI su 对 app uid 不可用（诚实 failed/unavailable）；release R8 需 keep agent2/recording（proguard-rules.pro）；leaf5 走 ws:// tailnet IP（MagicDNS 在 BOOX 不可用）
