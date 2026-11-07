@@ -129,7 +129,7 @@ class EventGovernor {
     }
 
     // 按 App 与事件类型分别去重，避免跨类型误判。
-    final key = '$label|\u0024{e.kind}';
+    final key = '$label|${e.kind}';
     final lastAt = _lastAt[key];
     final delta = lastAt == null ? null : e.occurredAtMs - lastAt;
     if (mergeWindowMs > 0 &&
@@ -171,7 +171,7 @@ class EventGovernor {
   /// 只有事件成功入队后才占用去重窗口和数量预算。
   void recordAccepted(GovernedEvent e, {int? bodyHash}) {
     final label = e.appLabel;
-    final key = '$label|\u0024{e.kind}';
+    final key = '$label|${e.kind}';
     if (perAppPerHour > 0) {
       _appTimestamps.putIfAbsent(label, () => []).add(e.occurredAtMs);
     }
