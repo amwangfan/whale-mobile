@@ -1,4 +1,4 @@
-package com.wangfanlab.whale.runtime
+package com.wangfanlab.whale.runtime.v2
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -16,23 +16,19 @@ import com.wangfanlab.whale.R
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * 节点前台服务（BG-01）：[NodeRuntime] 的前台载体与统一启动/停止入口。
+ * 节点前台服务 V2：[NodeRuntimeV2] 的前台载体与统一启动/停止入口。
  *
- * 合规边界（Android 8+ 后台限制）：
- * - 只能由前台场景显式启动（UI 发起 connect / 用户开启开关），
- *   走 [Context.startForegroundService]；从不在后台隐式拉起。
- * - 启动后立即可见常驻通知（whale_status 渠道），通知上有「停止」动作
- *   （kill switch：断开 WSS + 退出前台 + 停服务），用户可随时撤销。
- * - API 29+ 声明 dataSync 前台服务类型；Android 15 对 dataSync 有
- *   时长限制（6h/24h），超限系统会停服务——届时连接降级为进程内存活，
- *   恢复策略属 BG-02 范围，本服务不做任何绕过。
- * - 进程内仅允许一个运行实例（[isRunning]），心跳发送者仍是 NodeRuntime
- *   单例，服务重启只是重新 attach。
+ * 与 v1 [com.wangfanlab.whale.runtime.NodeService] 同合规边界（Android 8+
+ * 后台限制）：只能由前台场景显式启动，常驻通知带「停止」动作（kill switch），
+ * API 29+ 声明 dataSync 类型，Android 15 时长受限时按系统降级不绕过。
+ *
+ * 与 v1 服务并存（不同渠道/通知 id，互不覆盖）；v1 栈统一下线由编排者执行，
+ * 届时本服务成为唯一前台载体。
  */
-class NodeService : Service() {
+class NodeServiceV2 : Service() {
 
     inner class LocalBinder : Binder() {
-        val service: NodeService get() = this@NodeService
+        val service: NodeServiceV2 get() = this@NodeServiceV2
     }
 
     private val binder = LocalBinder()
@@ -45,17 +41,17 @@ class NodeService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
-                Log.i(TAG, "收到停止指令：断开连接并退出前台")
-                NodeRuntime.peek()?.disconnect()
+                Log.i(TAG, "收到停止指令：断开 v2 连接并退出前台")
+                NodeRuntimeV2.peek()?.disconnect()
                 stopSelfInternal()
                 return START_NOT_STICKY
             }
             else -> {
                 promoteForeground()
                 // START_STICKY 重建（intent=null）：进程被杀后系统拉起服务时
-                // 按策略恢复连接（BG-02；尊重暂停/断开/撤销）。
+                // 按策略恢复连接（尊重暂停/断开/撤销）。
                 if (intent == null) {
-                    NodeRuntime.peek()?.recoverIfNeeded("service_restart")
+                    NodeRuntimeV2.peek()?.recoverIfNeeded("service_restart")
                 }
                 return START_STICKY
             }
@@ -74,12 +70,7 @@ class NodeService : Service() {
     private fun promoteForeground() {
         val notification = buildNotification()
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                startForeground(
-                    NOTIFICATION_ID, notification,
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
-                )
-            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 startForeground(
                     NOTIFICATION_ID, notification,
                     ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
@@ -88,11 +79,10 @@ class NodeService : Service() {
                 startForeground(NOTIFICATION_ID, notification)
             }
             running.set(true)
-            Log.i(TAG, "NodeService 前台运行中")
+            Log.i(TAG, "NodeServiceV2 前台运行中")
         } catch (t: Throwable) {
-            // FGS 启动限制（如后台启动禁令、Android 15 dataSync 额度）：
-            // fail-soft —— 服务不前台化，运行时仍可随进程存活，不做任何绕过。
-            Log.w(TAG, "前台服务启动被拒（系统限制），降级为普通服务: ${t.message}")
+            // FGS 启动限制：fail-soft —— 服务不前台化，运行时仍可随进程存活，不做绕过。
+            Log.w(TAG, "v2 前台服务启动被拒（系统限制），降级为普通服务: ${t.message}")
             running.set(true)
         }
     }
@@ -111,7 +101,7 @@ class NodeService : Service() {
     private fun buildNotification(): Notification {
         val stopIntent = PendingIntent.getService(
             this, 0,
-            Intent(this, NodeService::class.java).setAction(ACTION_STOP),
+            Intent(this, NodeServiceV2::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -122,8 +112,8 @@ class NodeService : Service() {
         }
         return builder
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("Whale 节点运行中")
-            .setContentText("设备控制通道保持连接；点「停止」立即断开")
+            .setContentTitle("Whale 节点运行中（v2）")
+            .setContentText("设备控制通道（协议 v2）保持连接；点「停止」立即断开")
             .setOngoing(true)
             .addAction(
                 Notification.Action.Builder(null, "停止", stopIntent).build(),
@@ -136,19 +126,19 @@ class NodeService : Service() {
         val nm = getSystemService(NotificationManager::class.java) ?: return
         if (nm.getNotificationChannel(CHANNEL_ID) != null) return
         val channel = NotificationChannel(
-            CHANNEL_ID, "Whale 节点状态", NotificationManager.IMPORTANCE_LOW,
+            CHANNEL_ID, "Whale 节点状态（v2）", NotificationManager.IMPORTANCE_LOW,
         ).apply {
-            description = "设备控制通道常驻连接状态（可在此关闭或从通知停止）"
+            description = "设备控制通道（协议 v2）常驻连接状态（可在此关闭或从通知停止）"
             setShowBadge(false)
         }
         nm.createNotificationChannel(channel)
     }
 
     companion object {
-        private const val TAG = "WhaleNodeService"
-        private const val CHANNEL_ID = "whale_status"
-        private const val NOTIFICATION_ID = 1001
-        private const val ACTION_STOP = "com.wangfanlab.whale.runtime.action.STOP"
+        private const val TAG = "WhaleNodeServiceV2"
+        private const val CHANNEL_ID = "whale_status_v2"
+        private const val NOTIFICATION_ID = 1002
+        private const val ACTION_STOP = "com.wangfanlab.whale.runtime.v2.action.STOP"
 
         private val running = AtomicBoolean(false)
 
@@ -156,24 +146,23 @@ class NodeService : Service() {
         val isRunning: Boolean get() = running.get()
 
         /**
-         * 从【前台场景】启动节点服务（如 UI 内发起连接）。Android 12+ 禁止
-         * 后台启动 FGS，调用方须确保进程处于前台，否则系统抛异常——
-         * 此处捕获并记录，不做绕过。
+         * 从【前台场景】启动 v2 节点服务（如 UI 发起 connectV2）。Android 12+
+         * 禁止后台启动 FGS，调用方须确保进程处于前台——此处捕获并记录，不做绕过。
          */
         fun start(context: Context) {
             val app = context.applicationContext
-            val intent = Intent(app, NodeService::class.java)
+            val intent = Intent(app, NodeServiceV2::class.java)
             try {
                 app.startForegroundService(intent)
             } catch (t: Throwable) {
-                Log.w(TAG, "startForegroundService 失败（可能处于后台）: ${t.message}")
+                Log.w(TAG, "startForegroundService(v2) 失败（可能处于后台）: ${t.message}")
             }
         }
 
-        /** 停止前台服务（不主动断开 WSS；断开请用 ACTION_STOP 或 NodeRuntime.disconnect）。 */
+        /** 停止前台服务（不主动断开 WSS；断开请用 ACTION_STOP 或 NodeRuntimeV2.disconnect）。 */
         fun stop(context: Context) {
             val app = context.applicationContext
-            app.stopService(Intent(app, NodeService::class.java))
+            app.stopService(Intent(app, NodeServiceV2::class.java))
         }
     }
 }

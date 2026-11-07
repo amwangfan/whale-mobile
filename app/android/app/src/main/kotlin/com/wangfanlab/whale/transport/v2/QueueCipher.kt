@@ -1,7 +1,9 @@
-package com.wangfanlab.whale.transport
+package com.wangfanlab.whale.transport.v2
+
+import com.wangfanlab.whale.transport.DeviceIdentity
 
 /**
- * 队列 payload 加解密接口（SEC-01）。
+ * 队列 payload 加解密接口（SEC-01；自 v1 transport/QueueCipher.kt 迁入 v2 包）。
  *
  * 生产实现由 [DeviceIdentity] 的 Keystore AES-256/GCM 主密钥支撑
  * （[DeviceIdentity.encryptString]/[DeviceIdentity.decryptString]，材料不出 Keystore）；

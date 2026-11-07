@@ -1,10 +1,11 @@
-package com.wangfanlab.whale.transport
+package com.wangfanlab.whale.transport.v2
 
 import kotlin.math.min
 import kotlin.math.roundToLong
 
 /**
- * 重连退避：指数退避 1s → 60s 封顶，每次 ±20% 抖动。
+ * 重连退避：指数退避 1s → 60s 封顶，每次 ±20% 抖动
+ * （自 v1 transport/Backoff.kt 迁入 v2 包，[WssClientV2] 沿用同一语义）。
  *
  * 纯 JVM。时钟与随机源均可注入，便于确定性单元测试：
  * - [clock] 返回当前毫秒（用于计算下次重连的绝对时刻）；

@@ -1,4 +1,4 @@
-package com.wangfanlab.whale.transport
+package com.wangfanlab.whale.transport.v2
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
