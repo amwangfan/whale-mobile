@@ -55,13 +55,24 @@ class Agent2Module(
     private val shell: RootShell = RootShell.fromAgentShell(
         AgentShell(File(context.applicationContext.filesDir, "agent2/out")),
     ),
-    /** UI 树来源（root uiautomator dump；返回 null=不可用）。 */
-    private val uiTreeSource: UiTreeSource = UiTreeSource.rootShell(shell),
+    /** 仅 root 构建允许 Root Shell；daily 构建不尝试 su。 */
+    private val rootEdition: Boolean = CapabilityRegistry.isRootEdition(),
+    /** 无障碍屏幕操作（与 ShadowCaptureService 复用，不新增服务）。 */
+    private val accessibility: AccessibilityDeviceControl =
+        AndroidAccessibilityDeviceControl(context.applicationContext),
+    /** 优先按需读取无障碍 UI 节点；仅 Root 版在服务不可用时走 uiautomator。 */
+    private val uiTreeSource: UiTreeSource = UiTreeSource {
+        accessibility.dumpUiTree()
+            ?: if (rootEdition) UiTreeSource.rootShell(shell).dump() else null
+    },
     /** 截图来源（ShotTaker30 优先，root screencap 兜底；null=不可用）。 */
     private val screenshotSource: ScreenshotSource =
         ScreenshotSource.chain(context.applicationContext, shell),
-    /** 前台包名探测（root dumpsys；null=不可判定→相关 verification 标 skipped）。 */
-    private val foregroundProbe: ForegroundProbe = ForegroundProbe.rootShell(shell),
+    /** 前台包名探测：无障碍事件或 Root dumpsys（都不可用则不伪报验证）。 */
+    private val foregroundProbe: ForegroundProbe = ForegroundProbe {
+        accessibility.foregroundPackage()
+            ?: if (rootEdition) ForegroundProbe.rootShell(shell).current() else null
+    },
     /** 屏幕尺寸（坐标屏内校验用；缺省取应用资源 displayMetrics）。 */
     private val screenSize: () -> Pair<Int, Int> = {
         val m = context.applicationContext.resources.displayMetrics
@@ -69,8 +80,6 @@ class Agent2Module(
     },
     /** estop 熔断开关（默认沿用 v1 agent_estop 键）。 */
     private val estop: () -> Boolean = { AgentModule.isEstop(context.applicationContext) },
-    /** 构建变体门控（默认取 CapabilityRegistry；测试可注入）。 */
-    private val rootEdition: Boolean = CapabilityRegistry.isRootEdition(),
     private val clock: () -> Long = System::currentTimeMillis,
     private val executor: Executor = Executors.newCachedThreadPool { r ->
         Thread(r, "whale-agent2").apply { isDaemon = true }
@@ -402,6 +411,27 @@ class Agent2Module(
         )
     }
 
+    /** 无障碍结果映射 v2 回执；提交后超时/取消按 unknown，禁止自动换 Root 重放。 */
+    private fun accessibilityOutcome(r: AccessibilityDeviceControl.Result): ReceiptDispatcherV2.ActionOutcome =
+        when (r.status) {
+            AccessibilityDeviceControl.Status.SUCCEEDED -> ReceiptDispatcherV2.ActionOutcome(
+                ReceiptStatus.SUCCEEDED,
+                resultSummary = r.reason.ifBlank { "无障碍动作已完成" },
+                providerRef = "accessibility",
+                verificationStatus = "skipped",
+                verificationSummary = "动作已由系统回调完成；未额外验证界面状态",
+            )
+            AccessibilityDeviceControl.Status.UNKNOWN -> ReceiptDispatcherV2.ActionOutcome(
+                ReceiptStatus.UNKNOWN,
+                resultSummary = r.reason.ifBlank { "无障碍动作结果不明，未自动重试" },
+                providerRef = "accessibility",
+            )
+            AccessibilityDeviceControl.Status.UNAVAILABLE ->
+                fail(ErrorCodeV2.UNAVAILABLE, r.reason.ifBlank { "无障碍服务不可用" })
+            AccessibilityDeviceControl.Status.FAILED ->
+                fail(ErrorCodeV2.UNAVAILABLE, r.reason.ifBlank { "无障碍动作未执行" })
+        }
+
     /** 输出尾部超过摘要一半时给 output_ref（大输出经 device.output.read 拉取，§7.3）。 */
     private fun outRefIfLarge(r: AgentShell.Result): String? =
         if (r.outputFile.isNotBlank() && r.outputTail.length > 1000) {
@@ -490,20 +520,23 @@ class Agent2Module(
                         once.reply(err)
                         return@execute
                     }
-                    if (!ensureRoot()) {
-                        once.reply(fail(ErrorCodeV2.UNAVAILABLE, "root shell 不可用"))
-                        return@execute
+                    if (rootEdition && ensureRoot()) {
+                        val cmd = Agent2Logic.buildCommand(request.capability, args, point!!)
+                        if (cmd == null) {
+                            once.reply(fail(ErrorCodeV2.INVALID_MESSAGE, "命令拼装失败"))
+                            return@execute
+                        }
+                        once.reply(
+                            runShellOutcome(cmd, 30, null, { r ->
+                                "${request.capability} ok (${point.first},${point.second}) exit=${r.exitCode}"
+                            }),
+                        )
+                    } else if (accessibility.available()) {
+                        once.reply(accessibilityOutcome(accessibility.execute(request.capability, args, point)))
+                    } else {
+                        once.reply(fail(ErrorCodeV2.UNAVAILABLE, "需要启用 Whale 无障碍服务" +
+                            (if (rootEdition) "或提供 Root" else "")))
                     }
-                    val cmd = Agent2Logic.buildCommand(request.capability, args, point!!)
-                    if (cmd == null) {
-                        once.reply(fail(ErrorCodeV2.INVALID_MESSAGE, "命令拼装失败"))
-                        return@execute
-                    }
-                    once.reply(
-                        runShellOutcome(cmd, 30, null, { r ->
-                            "${request.capability} ok (${point.first},${point.second}) exit=${r.exitCode}"
-                        }),
-                    )
                 }
             }
         }
@@ -524,8 +557,36 @@ class Agent2Module(
                         once.reply(fail(ErrorCodeV2.ESTOP_ACTIVE, "紧急停止激活，拒绝执行"))
                         return@execute
                     }
-                    if (!ensureRoot()) {
-                        once.reply(fail(ErrorCodeV2.UNAVAILABLE, "root shell 不可用"))
+                    if (!rootEdition || !ensureRoot()) {
+                        if (request.capability == CapabilitiesV2.DEVICE_APP_LIST) {
+                            val filter = (request.arguments["filter"] as? String) ?: "all"
+                            val pkgs = accessibility.listLaunchableApps(filter)
+                            if (pkgs == null) {
+                                once.reply(fail(ErrorCodeV2.UNAVAILABLE, "应用列表不可查询"))
+                                return@execute
+                            }
+                            val file = File(outDir, "apps-" + System.nanoTime() + ".log")
+                            try {
+                                file.writeText(pkgs.joinToString("\n") { "package:" + it } + "\n")
+                            } catch (t: Throwable) {
+                                once.reply(fail(ErrorCodeV2.INTERNAL, "应用列表保存失败"))
+                                return@execute
+                            }
+                            once.reply(ReceiptDispatcherV2.ActionOutcome(
+                                ReceiptStatus.SUCCEEDED,
+                                resultSummary = "已列出 " + pkgs.size + " 个可启动应用（Android 可见范围，非全量）",
+                                outputRef = "agent:out:" + file.name,
+                                providerRef = "package_manager",
+                                verificationStatus = "skipped",
+                                verificationSummary = "应用列表查询",
+                            ))
+                        } else if (accessibility.available()) {
+                            once.reply(accessibilityOutcome(
+                                accessibility.execute(request.capability, request.arguments, null),
+                            ))
+                        } else {
+                            once.reply(fail(ErrorCodeV2.UNAVAILABLE, "需要启用 Whale 无障碍服务"))
+                        }
                         return@execute
                     }
                     val cmd = Agent2Logic.buildCommand(request.capability, request.arguments, null)
@@ -611,17 +672,22 @@ class Agent2Module(
                         once.reply(fail(ErrorCodeV2.ESTOP_ACTIVE, "紧急停止激活，拒绝执行"))
                         return@execute
                     }
-                    if (!ensureRoot()) {
-                        once.reply(fail(ErrorCodeV2.UNAVAILABLE, "root shell 不可用"))
+                    val useRoot = rootEdition && ensureRoot()
+                    if (!useRoot && !accessibility.available()) {
+                        once.reply(fail(ErrorCodeV2.UNAVAILABLE, "需要启用 Whale 无障碍服务"))
                         return@execute
                     }
                     val pkg = (request.arguments["package"] as String).trim()
-                    val cmd = Agent2Logic.buildCommand(
-                        CapabilitiesV2.DEVICE_APP_LAUNCH, request.arguments, null,
-                    )!!
-                    val base = runShellOutcome(cmd, 30, null, { r ->
-                        "已发起启动 $pkg exit=${r.exitCode}"
-                    })
+                    val base = if (useRoot) {
+                        val cmd = Agent2Logic.buildCommand(
+                            CapabilitiesV2.DEVICE_APP_LAUNCH, request.arguments, null,
+                        )!!
+                        runShellOutcome(cmd, 30, null, { r ->
+                            "已发起启动 $pkg exit=${r.exitCode}"
+                        })
+                    } else {
+                        accessibilityOutcome(accessibility.execute(request.capability, request.arguments, null))
+                    }
                     if (base.status != ReceiptStatus.SUCCEEDED) {
                         once.reply(base)
                         return@execute
@@ -651,6 +717,7 @@ class Agent2Module(
                         ReceiptDispatcherV2.ActionOutcome(
                             ReceiptStatus.SUCCEEDED,
                             resultSummary = "已发起启动 $pkg",
+                            providerRef = if (useRoot) "root" else "accessibility",
                             verificationStatus = vStatus, verificationSummary = vSummary,
                         ),
                     )
