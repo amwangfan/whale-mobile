@@ -50,13 +50,17 @@ jobs:
           cache: true
       - name: Build debug APK
         working-directory: app
-        run: flutter build apk --debug
+        run: |
+          flutter build apk --debug --flavor daily
+          flutter build apk --debug --flavor root
       - name: Dart tests
         working-directory: app
         run: flutter test
+      - name: VoIP Java media regression (host source only)
+        run: python3 -m unittest discover -s tests -p 'test_voip_media_security.py' -v
       - name: Kotlin unit tests (JUnit + Robolectric)
         working-directory: app/android
-        run: ./gradlew :app:testDebugUnitTest
+        run: ./gradlew :app:testDailyDebugUnitTest :app:testRootDebugUnitTest
 
   secret-scan:
     if: ${{ inputs.checks == 'all' || inputs.checks == 'secret-scan' }}
