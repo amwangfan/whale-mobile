@@ -21,17 +21,22 @@ MESSAGES_DIR = os.path.join(ROOT, "contracts", "v1", "messages")
 EXAMPLES_DIR = os.path.join(ROOT, "contracts", "v1", "examples")
 VENDOR_DIR = os.path.join(ROOT, "tests", "_vendor")
 
-if os.path.isdir(VENDOR_DIR):
-    sys.path.insert(0, VENDOR_DIR)
-
 try:
-    import jsonschema
     from jsonschema import Draft202012Validator
 except ImportError:
-    print("FATAL: 需要 jsonschema 库。请执行：\n"
-          "  pip install --target tests/_vendor jsonschema\n"
-          "或在虚拟环境中安装 jsonschema 后运行。", file=sys.stderr)
-    sys.exit(2)
+    # Offline fallback only. Never shadow platform-correct installed native wheels
+    # with the vendored Linux rpds binary on Windows/macOS.
+    if os.path.isdir(VENDOR_DIR):
+        sys.path.insert(0, VENDOR_DIR)
+    try:
+        from jsonschema import Draft202012Validator
+    except ImportError:
+        print("FATAL: 需要与当前 Python/平台兼容的 jsonschema。请在虚拟环境中运行：\n"
+              "  python -m pip install -r server/requirements.txt", file=sys.stderr)
+        sys.exit(2)
+
+
+from jsonschema.exceptions import SchemaError
 
 
 def load_json(path):
@@ -41,21 +46,44 @@ def load_json(path):
 
 def check(validator, instance):
     """返回错误列表（空列表 = 通过）。"""
-    return sorted(validator.iter_errors(instance), key=lambda e: list(e.path))
+    return sorted(validator.iter_errors(instance), key=lambda e: tuple(map(str, e.path)))
 
 
 def main():
     failures = []
     passes = 0
+    try:
+        schema_files = sorted(os.listdir(MESSAGES_DIR))
+        example_files = sorted(os.listdir(EXAMPLES_DIR))
+    except OSError as error:
+        print(f'FAIL  无法读取协议目录: {error}')
+        return 1
 
     schemas = {}
-    for fn in sorted(os.listdir(MESSAGES_DIR)):
+    for fn in schema_files:
         if fn.endswith(".schema.json"):
             name = fn[: -len(".schema.json")]
-            schemas[name] = load_json(os.path.join(MESSAGES_DIR, fn))
+            try:
+                schema = load_json(os.path.join(MESSAGES_DIR, fn))
+                Draft202012Validator.check_schema(schema)
+                schemas[name] = schema
+            except (OSError, json.JSONDecodeError, SchemaError) as e:
+                # Invalid schemas must fail the gate rather than become a traceback
+                # or accidentally validate every message.
+                failures.append(f"messages/{fn}: 无效 schema: {e}")
+    missing = {'envelope', 'device.hello', 'sensor.event', 'action.request'} - set(schemas)
+    if missing:
+        failures.append(f'缺少有效必需 schema: {sorted(missing)}')
+    example_names = {fn[:-5] for fn in example_files if fn.endswith('.json')}
+    for name in sorted(set(schemas) - {'envelope'} - example_names):
+        failures.append(f'messages/{name}.schema.json: 缺少黄金示例')
+    if failures:
+        for failure in failures:
+            print('FAIL ', failure)
+        return 1
 
     # ---------- 正例：examples/ 全部通过对应 schema ----------
-    for fn in sorted(os.listdir(EXAMPLES_DIR)):
+    for fn in example_files:
         if not fn.endswith(".json"):
             continue
         name = fn[: -len(".json")]

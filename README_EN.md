@@ -16,6 +16,8 @@ The goal is not another chat app: Whale gains useful senses and a way to act. A 
 
 ## Current capabilities
 
+> Dreaminutes fork: see [update notes](FORK_UPDATES.md) and [interoperability development](docs/device-interop-development.md) (Chinese).
+
 | Module | Implemented | Notes |
 | --- | --- | --- |
 | Background and transport | Application-level NodeRuntime, foreground service, network/boot recovery, authenticated WSS, encrypted offline queue and action receipts | Does not depend on a Flutter screen staying open |

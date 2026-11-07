@@ -15,23 +15,33 @@ import asyncio
 import hashlib
 import json
 import logging
+import math
 import os
 import secrets
 import sqlite3
 import sys
 import time
 import uuid
+from dataclasses import dataclass
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MESSAGES_DIR = os.path.join(ROOT, "contracts", "v1", "messages")
 VENDOR_DIR = os.path.join(ROOT, "tests", "_vendor")
-if os.path.isdir(VENDOR_DIR):
-    sys.path.insert(0, VENDOR_DIR)  # 复用 tests/_vendor 的 jsonschema
 
 import websockets
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-from jsonschema import Draft202012Validator
+try:
+    from jsonschema import Draft202012Validator
+except ImportError:
+    if os.path.isdir(VENDOR_DIR):
+        sys.path.insert(0, VENDOR_DIR)  # offline fallback when no installed package
+    from jsonschema import Draft202012Validator
+
+from protocol_capabilities import (
+    ACTION_CAPABILITIES, DEVICE_CAPABILITIES, QUERY_CAPABILITIES,
+    DEFAULT_PAIRING_CAPABILITIES,
+)
 
 log = logging.getLogger("dev_gateway")
 
@@ -42,11 +52,7 @@ DEFAULT_DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dev_gatew
 PAIR_CODE_TTL_S = 600
 REF_ID_FALLBACK = "0" * 16
 
-CAPABILITIES = [
-    "screen.context.read", "screen.history.search", "screen.evidence.read",
-    "screen.live.subscribe", "phone.notification.post", "phone.notification.read",
-    "phone.call.ring", "phone.call.audio", "phone.device.safe_action",
-]
+CAPABILITIES = list(DEVICE_CAPABILITIES)
 
 
 def now_ms() -> int:
@@ -146,7 +152,7 @@ def pair_request(db_path: str, label: str, pubkey_hex: str,
     """
     pubkey_hex = pubkey_hex.lower()
     device_id = device_id_from_pubkey_hex(pubkey_hex)
-    scopes = scopes or list(CAPABILITIES)
+    scopes = scopes or list(DEFAULT_PAIRING_CAPABILITIES)
     unknown = [s for s in scopes if s not in CAPABILITIES]
     if unknown:
         raise ValueError(f"未知 scope: {unknown}")
@@ -220,10 +226,18 @@ class ClientState:
         self.challenge_deadline = 0.0
         self.session_id: str | None = None
         self.down_seq = 0
+        self.send_lock = asyncio.Lock()
         self.expected_up_seq: int | None = None
         self.last_heartbeat = time.monotonic()
         self.offline_marked = False
         self.status = "connecting"
+
+
+@dataclass
+class PendingResponse:
+    device_id: str
+    future: asyncio.Future
+    response_type: str
 
 
 class Gateway:
@@ -239,7 +253,7 @@ class Gateway:
         self.challenge_ttl = challenge_ttl
         self.validators = load_validators()
         self.online: dict[str, ClientState] = {}       # device_id -> state（已认证）
-        self.pending: dict[str, asyncio.Future] = {}   # request_id/action_id -> future
+        self.pending: dict[str, PendingResponse] = {}
         self._ws_server = None
         self._admin_server = None
         self._sweep_task: asyncio.Task | None = None
@@ -255,10 +269,27 @@ class Gateway:
         return msg
 
     async def send_msg(self, st: ClientState, msg_type: str, payload: dict) -> dict:
-        st.down_seq += 1
-        msg = self.build_message(msg_type, "downlink", payload, st.down_seq)
-        await st.ws.send(json.dumps(msg, ensure_ascii=False))
-        return msg
+        async with st.send_lock:
+            msg = self.build_message(msg_type, "downlink", payload, st.down_seq + 1)
+            st.down_seq += 1
+            await st.ws.send(json.dumps(msg, ensure_ascii=False))
+            return msg
+
+    def _preflight(self, msg_type: str, payload: dict):
+        try:
+            self.build_message(msg_type, "downlink", payload, 0)
+        except (ValueError, TypeError) as exc:
+            return {"ok": False, "error": "invalid_message", "message": str(exc)}
+        return None
+
+    @staticmethod
+    def _timeout(req: dict):
+        value = req.get("timeout", 15)
+        try:
+            timeout = float(value)
+        except (TypeError, ValueError):
+            return None
+        return timeout if not isinstance(value, bool) and math.isfinite(timeout) and timeout > 0 else None
 
     async def send_error(self, st: ClientState, ref_id, code: str, message: str):
         if not (isinstance(ref_id, str) and 16 <= len(ref_id) <= 64):
@@ -457,12 +488,19 @@ class Gateway:
         await self.send_msg(st, "sensor.ack", {"event_ids": [p["event_id"]]})
 
     async def _on_sensor_result(self, st: ClientState, msg: dict):
-        fut = self.pending.pop(msg["payload"]["request_id"], None)
+        fut = self._take_pending(msg["payload"]["request_id"], st.device_id, "sensor.result")
         if fut and not fut.done():
             fut.set_result(msg["payload"])
         else:
             log.warning("收到无对应请求的 sensor.result request_id=%s，忽略",
                         msg["payload"]["request_id"])
+
+    def _take_pending(self, ref_id: str, device_id: str, response_type: str):
+        pending = self.pending.get(ref_id)
+        if (pending is None or pending.device_id != device_id
+                or pending.response_type != response_type):
+            return None
+        return self.pending.pop(ref_id).future
 
     async def _on_action_receipt(self, st: ClientState, msg: dict):
         p = msg["payload"]
@@ -470,11 +508,16 @@ class Gateway:
         state = p.get("state")
         # 回执状态机：received/accepted 为中间态，记录落库；executed/failed/unknown 才 resolve 等待方。
         with db_connect(self.db_path) as conn:
+            if not conn.execute(
+                "SELECT 1 FROM action_requests WHERE action_id=? AND device_id=?",
+                (action_id, st.device_id),
+            ).fetchone():
+                return
             conn.execute(
                 "INSERT INTO action_receipts(action_id, device_id, state, ts) VALUES(?,?,?,?)",
                 (action_id, st.device_id, str(state), now_ms()))
         if state in ("executed", "failed", "unknown"):
-            fut = self.pending.pop(action_id, None)
+            fut = self._take_pending(action_id, st.device_id, "action.receipt")
             if fut and not fut.done():
                 fut.set_result(p)
         else:
@@ -546,7 +589,9 @@ class Gateway:
         err = self._check_scope(st, operation)
         if err:
             return err
-        timeout_s = float(req.get("timeout", 15))
+        timeout_s = self._timeout(req)
+        if timeout_s is None:
+            return {"ok": False, "error": "invalid_message", "message": "timeout must be finite and positive"}
         request_id = uuid.uuid4().hex
         payload = {
             "request_id": request_id,
@@ -555,8 +600,11 @@ class Gateway:
             "max_items": int(req.get("max_items", 10)),
             "deadline": now_ms() + int(timeout_s * 1000),  # §2：请求必须带超时
         }
+        err = self._preflight("sensor.query", payload)
+        if err:
+            return err
         fut = asyncio.get_running_loop().create_future()
-        self.pending[request_id] = fut
+        self.pending[request_id] = PendingResponse(st.device_id, fut, "sensor.result")
         try:
             await self.send_msg(st, "sensor.query", payload)
             result = await asyncio.wait_for(fut, timeout=timeout_s + 5)
@@ -575,12 +623,27 @@ class Gateway:
         err = self._check_scope(st, capability)
         if err:
             return err
-        timeout_s = float(req.get("timeout", 15))
+        timeout_s = self._timeout(req)
+        if timeout_s is None:
+            return {"ok": False, "error": "invalid_message", "message": "timeout must be finite and positive"}
         action_id = uuid.uuid4().hex
-        idem_key = req.get("idempotency_key") or f"idem-{uuid.uuid4().hex}"
-        if not (8 <= len(idem_key) <= 128):  # §6 幂等键约束
+        idem_key = req.get("idempotency_key")
+        if idem_key is None:
+            idem_key = f"idem-{uuid.uuid4().hex}"
+        if not isinstance(idem_key, str) or not (8 <= len(idem_key) <= 128):  # §6 幂等键约束
             return {"ok": False, "error": "internal",
                     "message": "idempotency_key 长度须为 8..128"}
+        payload = {
+            "action_id": action_id,
+            "capability": capability,
+            "args": req.get("args") or {},
+            "authorized_scope": req.get("authorized_scope") or [capability],
+            "expires_at": now_ms() + int(timeout_s * 1000),
+            "idempotency_key": idem_key,
+        }
+        err = self._preflight("action.request", payload)
+        if err:
+            return err
         init_db(self.db_path)
         with db_connect(self.db_path) as conn:
             cur = conn.execute(
@@ -591,16 +654,8 @@ class Gateway:
         if cur.rowcount == 0:
             return {"ok": False, "error": "duplicate",
                     "message": f"幂等键 {idem_key} 已对该设备下发过"}
-        payload = {
-            "action_id": action_id,
-            "capability": capability,
-            "args": req.get("args") or {},
-            "authorized_scope": req.get("authorized_scope") or [capability],
-            "expires_at": now_ms() + int(timeout_s * 1000),
-            "idempotency_key": idem_key,
-        }
         fut = asyncio.get_running_loop().create_future()
-        self.pending[action_id] = fut
+        self.pending[action_id] = PendingResponse(st.device_id, fut, "action.receipt")
         try:
             await self.send_msg(st, "action.request", payload)
             receipt = await asyncio.wait_for(fut, timeout=timeout_s + 5)
@@ -683,7 +738,7 @@ def main(argv=None) -> int:
     p.add_argument("--label", required=True)
     p.add_argument("--pubkey", required=True,
                    help="设备 Ed25519 公钥（64 hex；开发简化：真实流程由手机经配对通道上报）")
-    p.add_argument("--scopes", default=None, help="逗号分隔的能力上限，默认全部 V1 能力")
+    p.add_argument("--scopes", default=None, help="逗号分隔的能力上限，默认基础 screen/phone 能力；眼镜/自主体需显式指定")
 
     p = sub.add_parser("pair-approve", help="批准配对码 → 设备转 active")
     p.add_argument("code")
@@ -695,7 +750,7 @@ def main(argv=None) -> int:
 
     p = sub.add_parser("query", help="向在线设备下发 sensor.query 并等待 sensor.result")
     p.add_argument("--device", required=True)
-    p.add_argument("--operation", required=True, choices=CAPABILITIES)
+    p.add_argument("--operation", required=True, choices=QUERY_CAPABILITIES)
     p.add_argument("--filters", default="{}")
     p.add_argument("--max-items", type=int, default=10)
     p.add_argument("--timeout", type=float, default=15)
@@ -704,7 +759,7 @@ def main(argv=None) -> int:
 
     p = sub.add_parser("action", help="向在线设备下发 action.request 并等待 action.receipt")
     p.add_argument("--device", required=True)
-    p.add_argument("--capability", required=True, choices=CAPABILITIES)
+    p.add_argument("--capability", required=True, choices=ACTION_CAPABILITIES)
     p.add_argument("--args", default="{}")
     p.add_argument("--idempotency-key", default=None)
     p.add_argument("--timeout", type=float, default=15)

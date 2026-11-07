@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/services.dart';
+import 'protocol_capabilities.dart';
 
 /// 传输层连接状态（与 Kotlin WssClient.State 一一对应）。
 enum TransportState {
@@ -119,25 +120,7 @@ class TransportClient {
   static const EventChannel _events = EventChannel('whale/transport/events');
 
   /// V1 能力全集（contracts/v1 §5），connect 默认声明。
-  static const List<String> v1Capabilities = [
-    'screen.context.read',
-    'screen.history.search',
-    'screen.evidence.read',
-    'screen.live.subscribe',
-    'phone.notification.post',
-    'phone.notification.read',
-    'phone.call.ring',
-    'phone.call.audio',
-    'phone.device.safe_action',
-    // V1.1（GL-01）：眼镜 HUD（端侧无桥时降级手机通知）
-    'glasses.card.show',
-    'glasses.card.update',
-    'glasses.card.dismiss',
-    // core#58：设备自主体（Root 手机 UI 控制/观察/Shell）
-    'device.agent.control',
-    'device.agent.observe',
-    'device.agent.shell',
-  ];
+  static const List<String> v1Capabilities = defaultDeclaredCapabilities;
 
   Stream<Map<String, dynamic>>? _rawEvents;
 

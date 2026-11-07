@@ -16,6 +16,8 @@ whale-mobile 是 [whale-core](https://github.com/amwangfan/whale-core) 的 Andro
 
 ## 当前能力
 
+> Dreaminutes Fork 的逐批改动见 [更新说明](FORK_UPDATES.md)，联合检查和能力生成流程见 [互联开发说明](docs/device-interop-development.md)。
+
 | 模块 | 已实现的内容 | 使用情况 |
 | --- | --- | --- |
 | 后台与传输 | Application 级 NodeRuntime、前台服务、重启/网络恢复、WSS 身份校验、加密离线队列、动作回执 | Android 原生侧运行，不依赖 Flutter 页面常驻 |

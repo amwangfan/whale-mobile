@@ -29,8 +29,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
+      - name: Install platform-compatible protocol test dependencies
+        run: python -m pip install -r server/requirements.txt pytest
       - name: Validate contract schemas and golden examples
         run: python3 tests/contract_validate.py
+      - name: Check generated runtime capabilities and tooling
+        run: |
+          python scripts/generate_capabilities.py --check
+          python -m pytest tests/test_protocol_tooling.py -q
 
   app:
     if: ${{ inputs.checks == 'all' || inputs.checks == 'app' }}

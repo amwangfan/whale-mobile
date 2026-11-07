@@ -15,6 +15,7 @@ import logging
 import os
 import sys
 import uuid
+from types import SimpleNamespace
 
 import pytest
 import websockets
@@ -25,6 +26,94 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import dev_gateway as dg  # noqa: E402
 
 logging.basicConfig(level=logging.WARNING)
+
+
+def test_pending_query_can_only_be_completed_by_addressed_device():
+    async def scenario():
+        gw = dg.Gateway.__new__(dg.Gateway)
+        future = asyncio.get_running_loop().create_future()
+        gw.pending = {'query-1': dg.PendingResponse('phone-1', future, 'sensor.result')}
+        msg = {'payload': {'request_id': 'query-1', 'status': 'ok'}}
+        await gw._on_sensor_result(SimpleNamespace(device_id='phone-2'), msg)
+        assert 'query-1' in gw.pending and not future.done()
+        await gw._on_sensor_result(SimpleNamespace(device_id='phone-1'), msg)
+        assert future.result() == msg['payload'] and not gw.pending
+    asyncio.run(scenario())
+
+
+def test_foreign_action_receipt_does_not_pollute_records_or_complete_waiter(tmp_path):
+    async def scenario():
+        gw = dg.Gateway.__new__(dg.Gateway)
+        gw.db_path = str(tmp_path / 'ownership.db')
+        dg.init_db(gw.db_path)
+        with dg.db_connect(gw.db_path) as conn:
+            conn.execute('INSERT INTO action_requests(device_id,idempotency_key,action_id,capability,created_at) VALUES(?,?,?,?,?)',
+                         ('phone-1', 'idem-1', 'action-1', 'phone.notification.post', dg.now_ms()))
+        future = asyncio.get_running_loop().create_future()
+        gw.pending = {'action-1': dg.PendingResponse('phone-1', future, 'action.receipt')}
+        msg = {'payload': {'action_id': 'action-1', 'state': 'executed'}}
+        await gw._on_action_receipt(SimpleNamespace(device_id='phone-2'), msg)
+        assert not future.done()
+        await gw._on_sensor_result(SimpleNamespace(device_id='phone-1'), {
+            'payload': {'request_id': 'action-1', 'status': 'ok'},
+        })
+        assert not future.done() and 'action-1' in gw.pending
+        with dg.db_connect(gw.db_path) as conn:
+            assert conn.execute('SELECT COUNT(*) FROM action_receipts').fetchone()[0] == 0
+        await gw._on_action_receipt(SimpleNamespace(device_id='phone-1'), msg)
+        assert future.result()['state'] == 'executed'
+    asyncio.run(scenario())
+
+
+def test_explicit_new_capabilities_do_not_expand_default_pairing(tmp_path):
+    _, pubkey, _ = make_device_keypair()
+    db = str(tmp_path / 'capabilities.db')
+    _, device = dg.pair_request(db, 'base', pubkey)
+    assert len(json.loads(dg.get_device(db, device)['scopes'])) == 9
+    scopes = ['glasses.card.show', 'device.agent.observe', 'device.agent.output.read']
+    dg.pair_request(db, 'explicit', pubkey, scopes=scopes)
+    assert json.loads(dg.get_device(db, device)['scopes']) == scopes
+
+
+def test_invalid_action_does_not_reserve_idempotency_key(tmp_path):
+    async def scenario():
+        _, pubkey, _ = make_device_keypair()
+        gw = dg.Gateway(db_path=str(tmp_path / 'invalid-action.db'))
+        _, device = dg.pair_request(gw.db_path, 'phone', pubkey)
+        dg.pair_approve(gw.db_path, dg.get_device(gw.db_path, device)['pairing_code'])
+        gw.online[device] = SimpleNamespace(device_id=device)
+        request = {'device': device, 'capability': 'phone.notification.post',
+                   'idempotency_key': 'not-burned-key', 'args': {str(i): i for i in range(33)}}
+        result = await gw._admin_action(request)
+        assert result['error'] == 'invalid_message' and not gw.pending
+        with dg.db_connect(gw.db_path) as conn:
+            assert conn.execute('SELECT COUNT(*) FROM action_requests').fetchone()[0] == 0
+    asyncio.run(scenario())
+
+
+def test_concurrent_send_sequence_matches_wire_order():
+    async def scenario():
+        first_entered, release = asyncio.Event(), asyncio.Event()
+        frames = []
+        class Socket:
+            async def send(self, raw):
+                frame = json.loads(raw)
+                if frame['seq'] == 1:
+                    first_entered.set()
+                    await release.wait()
+                frames.append(frame['seq'])
+        gw = dg.Gateway()
+        state = dg.ClientState(Socket())
+        payload = {'ref_id': 'a' * 16, 'code': 'internal', 'message': 'test'}
+        first = asyncio.create_task(gw.send_msg(state, 'error', payload))
+        await first_entered.wait()
+        second = asyncio.create_task(gw.send_msg(state, 'error', payload))
+        await asyncio.sleep(0)
+        assert frames == []
+        release.set()
+        await asyncio.gather(first, second)
+        assert frames == [1, 2]
+    asyncio.run(scenario())
 
 
 # ---------------------------------------------------------------- helpers
