@@ -7,14 +7,14 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.util.Log
-import com.wangfanlab.whale.runtime.NodeRuntime
-import com.wangfanlab.whale.transport.WssClient
+import com.wangfanlab.whale.runtime.PauseFlags
+import com.wangfanlab.whale.transport.v2.LegacyActionExecutor
 
 /**
  * 受控设备动作模块（阶段二 B3 前半：phone.device.safe_action）。
  *
- * - 注册为 `phone.device.safe_action` 的 [WssClient.ActionExecutor]；
- *   WssClient 过完传输层校验（验签/幂等/有效期/scope）后调用 [execute]，
+ * - 注册为 `phone.device.safe_action` 的 [LegacyActionExecutor]；
+ *   ReceiptDispatcherV2 过完传输层校验（验签/幂等/有效期/scope）后调用 [execute]，
  *   本模块再过端侧校验链（[SafeActionDecider]：暂停→开关→白名单→共享频控），
  *   终态经 reply 精确回执（executed / failed+error_code）。
  * - launch_app：仅允许已安装且带 LAUNCHER 入口的 App
@@ -27,16 +27,16 @@ class SafeActionModule(
     private val context: Context,
     private val decider: SafeActionDecider = SafeActionDecider(
         moduleEnabled = { isEnabled(context.applicationContext) },
-        allPaused = { NodeRuntime.isAllPaused(context.applicationContext) },
+        allPaused = { PauseFlags.isAllPaused(context.applicationContext) },
         isLaunchable = { pkg -> queryLaunchable(context.applicationContext, pkg) },
     ),
     /** 执行出口（测试可替换）；默认走系统 Intent。 */
     private val launcher: (SafeActionSpec) -> Unit = { spec ->
         doExecute(context.applicationContext, spec)
     },
-) : WssClient.ActionExecutor {
+) : LegacyActionExecutor {
 
-    /** WssClient executor 线程调用；同步执行，经 reply 回终态（executed/failed）。 */
+    /** WssClientV2 executor 线程调用；同步执行，经 reply 回终态（executed/failed）。 */
     override fun execute(
         payload: Map<String, Any?>,
         reply: (state: String, errorCode: String?, providerRef: String?, result: Map<String, Any?>?) -> Unit,

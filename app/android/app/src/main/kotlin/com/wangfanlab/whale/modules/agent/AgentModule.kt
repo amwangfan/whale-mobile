@@ -5,8 +5,8 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Base64
 import android.util.Log
-import com.wangfanlab.whale.runtime.NodeRuntime
-import com.wangfanlab.whale.transport.WssClient
+import com.wangfanlab.whale.runtime.PauseFlags
+import com.wangfanlab.whale.transport.v2.LegacyActionExecutor
 import java.io.File
 import java.io.FileOutputStream
 
@@ -28,7 +28,7 @@ class AgentModule(
     val shell: AgentShell = AgentShell(
         File(context.applicationContext.filesDir, "agent/out"),
     ),
-) : WssClient.ActionExecutor {
+) : LegacyActionExecutor {
 
     private val appContext = context.applicationContext
     private val lock = Any()
@@ -47,7 +47,7 @@ class AgentModule(
                 capability, args,
                 moduleEnabled = isEnabled(appContext),
                 rootAuthorized = isRootAuthorized(appContext),
-                allPaused = NodeRuntime.isAllPaused(appContext),
+                allPaused = PauseFlags.isAllPaused(appContext),
                 estop = isEstop(appContext),
                 recent = recentActions.toList(),
                 nowMs = now,
@@ -97,7 +97,7 @@ class AgentModule(
         val session = (args["session"] as? String)?.trim()?.takeIf { it.isNotEmpty() }
         val r = shell.execute(
             command, timeoutS, session,
-            estop = { isEstop(appContext) || NodeRuntime.isAllPaused(appContext) },
+            estop = { isEstop(appContext) || PauseFlags.isAllPaused(appContext) },
         )
         val summary = AgentLogic.truncateSummary(
             (if (r.outputTail.isBlank()) "(无输出)" else r.outputTail.trim()) +
@@ -127,7 +127,7 @@ class AgentModule(
         val action = (args["action"] as? String)!!
         val cmd = buildControlCommand(action, args)
         val r = shell.execute(cmd, 30, null,
-            estop = { isEstop(appContext) || NodeRuntime.isAllPaused(appContext) })
+            estop = { isEstop(appContext) || PauseFlags.isAllPaused(appContext) })
         when {
             r.timedOut ->
                 reply("failed", "timeout", null, mapOf("summary" to "控制命令超时"))
@@ -196,7 +196,7 @@ class AgentModule(
                 val r = shell.execute(
                     "uiautomator dump /sdcard/whale_agent_ui.xml >/dev/null 2>&1; echo done",
                     30, null,
-                    estop = { isEstop(appContext) || NodeRuntime.isAllPaused(appContext) },
+                    estop = { isEstop(appContext) || PauseFlags.isAllPaused(appContext) },
                 )
                 val f = File("/sdcard/whale_agent_ui.xml")
                 val text = try {
@@ -222,7 +222,7 @@ class AgentModule(
                 val target = File(outDir, name)
                 val r = shell.execute(
                     "screencap -p /sdcard/whale_agent_shot.png && echo ok", 30, null,
-                    estop = { isEstop(appContext) || NodeRuntime.isAllPaused(appContext) },
+                    estop = { isEstop(appContext) || PauseFlags.isAllPaused(appContext) },
                 )
                 val png = File("/sdcard/whale_agent_shot.png")
                 if (!png.exists() || png.length() == 0L) {
@@ -293,7 +293,7 @@ class AgentModule(
             ref,
             moduleEnabled = isEnabled(appContext),
             rootAuthorized = isRootAuthorized(appContext),
-            allPaused = NodeRuntime.isAllPaused(appContext),
+            allPaused = PauseFlags.isAllPaused(appContext),
             estop = isEstop(appContext),
         )?.let { return mapOf("error" to it) }
         val base = File(appContext.filesDir, "agent")

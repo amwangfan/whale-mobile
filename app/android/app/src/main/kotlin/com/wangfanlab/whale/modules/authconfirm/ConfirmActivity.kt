@@ -11,7 +11,7 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
-import com.wangfanlab.whale.runtime.NodeRuntime
+import com.wangfanlab.whale.runtime.v2.NodeRuntimeV2
 
 /**
  * 可信确认界面（AUTH-01）：锁屏可显示的全屏确认页。
@@ -34,7 +34,7 @@ class ConfirmActivity : Activity() {
             )
         }
 
-        val module = NodeRuntime.peek()?.authConfirmModule
+        val module = NodeRuntimeV2.peek()?.authConfirmModule
         val c = module?.currentPending()
         if (module == null || c == null) {
             finish()

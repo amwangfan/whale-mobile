@@ -12,14 +12,15 @@ import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.os.Build
 import android.util.Log
-import com.wangfanlab.whale.runtime.NodeRuntime
-import com.wangfanlab.whale.transport.WssClient
+import com.wangfanlab.whale.runtime.PauseFlags
+import com.wangfanlab.whale.transport.v2.LegacyActionExecutor
 
 /**
  * 通知模块（modules/notifications/DESIGN.md，阶段一：post/update/cancel + 精确回执）。
  *
- * - 注册为 `phone.notification.post` 的 [WssClient.ActionExecutor]；
- *   WssClient 过完传输层校验（验签/幂等/有效期/scope）后调用 [execute]，
+ * - 注册为 `phone.notification.post` 的 [LegacyActionExecutor]
+ *   （经 NodeRuntimeV2 适配进 ReceiptDispatcherV2）；分发器过完传输层校验
+ *   （验签/幂等/有效期/scope）后调用 [execute]，
  *   本模块再过端侧校验链（见 [NotificationDecider]），结果经 reply 回终态。
  * - 渠道注册（§3）：whale_reminder（默认重要级）/ whale_call（高）/ whale_status（低）。
  * - Android 13+ POST_NOTIFICATIONS 未授予 → failed/permission_missing（不崩溃）。
@@ -30,9 +31,9 @@ class NotificationModule(
     private val decider: NotificationDecider = NotificationDecider(
         moduleEnabled = { isEnabled(context.applicationContext) },
         permissionGranted = { permissionGranted(context.applicationContext) },
-        allPaused = { NodeRuntime.isAllPaused(context.applicationContext) },
+        allPaused = { PauseFlags.isAllPaused(context.applicationContext) },
     ),
-) : WssClient.ActionExecutor {
+) : LegacyActionExecutor {
 
     private val appContext = context.applicationContext
 
@@ -40,7 +41,7 @@ class NotificationModule(
         ensureChannels()
     }
 
-    /** WssClient executor 线程调用；同步执行，经 reply 回终态（executed/failed）。 */
+    /** WssClientV2 executor 线程调用；同步执行，经 reply 回终态（executed/failed）。 */
     override fun execute(
         payload: Map<String, Any?>,
         reply: (state: String, errorCode: String?, providerRef: String?, result: Map<String, Any?>?) -> Unit,

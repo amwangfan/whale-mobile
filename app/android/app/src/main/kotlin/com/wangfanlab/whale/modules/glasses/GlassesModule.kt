@@ -5,8 +5,8 @@ import android.util.Log
 import com.wangfanlab.whale.modules.notifications.NotificationModule
 import com.wangfanlab.whale.modules.notifications.NotificationOp
 import com.wangfanlab.whale.modules.notifications.NotificationSpec
-import com.wangfanlab.whale.runtime.NodeRuntime
-import com.wangfanlab.whale.transport.WssClient
+import com.wangfanlab.whale.runtime.PauseFlags
+import com.wangfanlab.whale.transport.v2.LegacyActionExecutor
 
 /**
  * 眼镜 HUD 桥模块（GL-01，Issue #13；默认关）。
@@ -41,7 +41,7 @@ class GlassesModule(
     private val context: Context,
     private val transport: GlassesTransport = NullTransport(),
     private val notifier: NotificationModule.Notifier = NotificationModule.SystemNotifier(context.applicationContext),
-) : WssClient.ActionExecutor {
+) : LegacyActionExecutor {
 
     private val lock = Any()
     private val recentShows = ArrayDeque<Long>()
@@ -59,7 +59,7 @@ class GlassesModule(
             val decision = synchronized(lock) {
                 val d = GlassesLogic.validateShow(
                     args,
-                    allPaused = NodeRuntime.isAllPaused(context),
+                    allPaused = PauseFlags.isAllPaused(context),
                     moduleEnabled = isEnabled(context),
                     recentTimestamps = recentShows.toList(),
                     nowMs = now,

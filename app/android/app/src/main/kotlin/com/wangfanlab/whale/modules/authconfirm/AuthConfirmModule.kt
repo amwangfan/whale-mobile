@@ -11,7 +11,6 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import com.wangfanlab.whale.R
-import com.wangfanlab.whale.runtime.NodeRuntime
 
 /**
  * 手机可信确认模块（AUTH-01，Issue #15）。
@@ -47,7 +46,7 @@ class AuthConfirmModule(
     private val mainHandler = Handler(Looper.getMainLooper())
     private var expiryRunnable: Runnable? = null
 
-    /** WssClient 下行分发入口（主线程）。 */
+    /** 下行分发入口（主线程，由 NodeRuntimeV2 回调）。 */
     fun onConfirmRequest(payload: Map<String, Any?>) {
         val c = parse(payload) ?: run {
             Log.w(TAG, "confirm.request 结构非法，忽略")

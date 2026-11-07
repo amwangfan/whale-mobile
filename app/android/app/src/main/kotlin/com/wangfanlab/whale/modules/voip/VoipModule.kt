@@ -6,8 +6,8 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.util.Log
-import com.wangfanlab.whale.runtime.NodeRuntime
-import com.wangfanlab.whale.transport.WssClient
+import com.wangfanlab.whale.runtime.PauseFlags
+import com.wangfanlab.whale.transport.v2.LegacyActionExecutor
 import com.wangfanlab.whale.voip.BridgePrefs
 import com.wangfanlab.whale.voip.CallAccountHelper
 import com.wangfanlab.whale.voip.FakeConnectionService
@@ -16,7 +16,7 @@ import com.wangfanlab.whale.voip.FileLog
 /**
  * VoIP 模块（阶段二 B4 前半：信令整合，媒体仍走独立 PCM 桥 AudioBridge）。
  *
- * - 注册为 `phone.call.ring` 的 [WssClient.ActionExecutor]：
+ * - 注册为 `phone.call.ring` 的 [LegacyActionExecutor]（经 NodeRuntimeV2 适配入 v2 分发器）：
  *   args{number,name,bridge_host,bridge_port} → 端侧校验链（[RingDecider]）→
  *   [CallAccountHelper.ring] → reply 终态（executed=响铃成功 / failed）。
  * - 消费下行 call.invite（schema payload 仅 session_id/media_params/expires_at；
@@ -30,12 +30,12 @@ import com.wangfanlab.whale.voip.FileLog
  */
 class VoipModule(
     context: Context,
-    /** 上行事件出口（TransportBridge 注入 → WssClient.sendSensorEvent，离线入队）。 */
+    /** 上行事件出口（运行时注入 → WssClientV2.sendExperienceEvent，离线入队）。 */
     private val eventSender: (CallEvent) -> Unit = {},
     private val decider: RingDecider = RingDecider(
         moduleEnabled = { isEnabled(context.applicationContext) },
         permissionGranted = { permissionGranted(context.applicationContext) },
-        allPaused = { NodeRuntime.isAllPaused(context.applicationContext) },
+        allPaused = { PauseFlags.isAllPaused(context.applicationContext) },
         defaultBridgeHost = { BridgePrefs.getHost(context.applicationContext) },
         defaultBridgePort = { BridgePrefs.getPort(context.applicationContext) },
     ),
@@ -46,7 +46,7 @@ class VoipModule(
             spec.bridgeHost, spec.bridgePort,
         )
     },
-) : WssClient.ActionExecutor {
+) : LegacyActionExecutor {
 
     private val appContext = context.applicationContext
     private val tracker = CallSessionTracker()
@@ -144,7 +144,7 @@ class VoipModule(
                 Log.i(TAG, "call.invite 忽略: ${decision.reason}")
 
             is InviteDecision.Accept -> {
-                if (!isEnabled(appContext) || NodeRuntime.isAllPaused(appContext)) {
+                if (!isEnabled(appContext) || PauseFlags.isAllPaused(appContext)) {
                     Log.w(TAG, "call.invite 到达但模块停用/全局暂停，不响铃")
                     emitRaw(
                         "call.state",
