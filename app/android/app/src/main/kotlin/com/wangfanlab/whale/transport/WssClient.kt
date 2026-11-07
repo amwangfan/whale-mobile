@@ -792,16 +792,7 @@ class WssClient(
         const val TYPE_ERROR = "error"
 
         /** §5 V1 能力全集（端侧白名单，D7）。 */
-        val V1_CAPABILITIES: Set<String> = setOf(
-            "screen.context.read", "screen.history.search", "screen.evidence.read",
-            "screen.live.subscribe", "phone.notification.post", "phone.notification.read",
-            "phone.call.ring", "phone.call.audio", "phone.device.safe_action",
-            // V1.1（GL-01）：眼镜 HUD（桥不可达时端侧降级手机通知）
-            "glasses.card.show", "glasses.card.update", "glasses.card.dismiss",
-            // V1.1（core#58）：设备自主体
-            "device.agent.control", "device.agent.observe", "device.agent.shell",
-            "device.agent.output.read",
-        )
+        val V1_CAPABILITIES: Set<String> = ProtocolCapabilities.DEVICE_CAPABILITIES
 
         fun stateName(s: State): String = when (s) {
             State.DISCONNECTED -> "disconnected"

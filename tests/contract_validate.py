@@ -21,17 +21,19 @@ MESSAGES_DIR = os.path.join(ROOT, "contracts", "v1", "messages")
 EXAMPLES_DIR = os.path.join(ROOT, "contracts", "v1", "examples")
 VENDOR_DIR = os.path.join(ROOT, "tests", "_vendor")
 
-if os.path.isdir(VENDOR_DIR):
-    sys.path.insert(0, VENDOR_DIR)
-
 try:
-    import jsonschema
     from jsonschema import Draft202012Validator
 except ImportError:
-    print("FATAL: 需要 jsonschema 库。请执行：\n"
-          "  pip install --target tests/_vendor jsonschema\n"
-          "或在虚拟环境中安装 jsonschema 后运行。", file=sys.stderr)
-    sys.exit(2)
+    # Offline fallback only. Never shadow platform-correct installed native wheels
+    # with the vendored Linux rpds binary on Windows/macOS.
+    if os.path.isdir(VENDOR_DIR):
+        sys.path.insert(0, VENDOR_DIR)
+    try:
+        from jsonschema import Draft202012Validator
+    except ImportError:
+        print("FATAL: 需要与当前 Python/平台兼容的 jsonschema。请在虚拟环境中运行：\n"
+              "  python -m pip install -r server/requirements.txt", file=sys.stderr)
+        sys.exit(2)
 
 
 def load_json(path):
