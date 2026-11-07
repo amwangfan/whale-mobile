@@ -1,5 +1,7 @@
 # 迁移记录：whale-io / ScreenMemo → whale-mobile
 
+> 历史阶段记录。旧独立 VoIP APK 已退役，当前实现为 `app/android/app/src/main/java/com/wangfanlab/whale/voip/`；下表的「待迁移」为当时状态。
+
 > 决策：全新仓库、不带 whale-io git 历史（其历史含真实 PII）。资产以文件级拷贝迁入并脱敏；whale-io 归档只读。
 
 ## 1. 资产处置表
