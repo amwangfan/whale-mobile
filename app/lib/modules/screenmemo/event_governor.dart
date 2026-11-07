@@ -177,7 +177,13 @@ class EventGovernor {
     }
     if (totalPerHour > 0) _totalTimestamps.add(e.occurredAtMs);
     if (bodyHash != null) _lastSimhash[key] = bodyHash;
+    _lastAt.remove(key);
     _lastAt[key] = e.occurredAtMs;
+    if (_lastAt.length > 512) {
+      final oldest = _lastAt.keys.first;
+      _lastAt.remove(oldest);
+      _lastSimhash.remove(oldest);
+    }
     _stats['passed'] = (_stats['passed'] ?? 0) + 1;
   }
 
@@ -188,9 +194,10 @@ class EventGovernor {
 
   void _prune(int nowMs) {
     final cutoff = nowMs - 3600 * 1000;
-    for (final l in _appTimestamps.values) {
-      l.removeWhere((t) => t < cutoff);
-    }
+    _appTimestamps.removeWhere((_, timestamps) {
+      timestamps.removeWhere((t) => t < cutoff);
+      return timestamps.isEmpty;
+    });
     _totalTimestamps.removeWhere((t) => t < cutoff);
   }
 
