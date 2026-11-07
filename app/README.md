@@ -11,10 +11,10 @@ flutter test
 flutter build apk --debug
 ```
 
-Flutter 页面在 `lib/`；设备连接和原生方法通道在 `features/chat/services/chat_api.dart and the V2 transport bridge`。Android 常驻运行时、传输层与功能执行器在 `android/app/src/main/kotlin/com/wangfanlab/whale/`。
+Flutter 页面在 `lib/`；V2 设备连接在 `lib/transport/transport_client_v2.dart`，Flutter 与原生交互经 `android/app/src/main/kotlin/com/wangfanlab/whale/transport/TransportBridge.kt`。聊天 API 位于 `lib/features/chat/services/`。Android 常驻运行时、传输层与功能执行器在 `android/app/src/main/kotlin/com/wangfanlab/whale/`。
 
 核心链路是 `NodeRuntimeV2` + `NodeServiceV2` 管理连接与后台任务，Flutter UI 只显示状态和提供配置入口。不要将长连接重新绑定到 Activity 生命周期。
 
-设备自主体的原生入口在 `modules/agent2/`，包括 Root Shell、UI 观察/控制与紧急停止；日常手机和专用 Root 手机通过不同模块授权使用同一套协议。
+设备自主体的原生入口在 `android/app/src/main/kotlin/com/wangfanlab/whale/modules/agent2/`，包括 Root Shell、UI 观察/控制与紧急停止；日常手机和专用 Root 手机通过不同模块授权使用同一套协议。
 
 端云 JSON Schema 位于仓库根 `contracts/v2/`，是当前唯一设备协议。Android 真机运行记录和使用步骤见 `../docs/STATUS.md` 与 `../docs/SETUP-MAGIC8.md`。
