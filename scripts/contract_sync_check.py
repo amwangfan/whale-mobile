@@ -32,34 +32,46 @@ from pathlib import Path
 
 SCOPE_FILES = ("PROTOCOL.md",)
 SCOPE_GLOBS = ("messages/*.schema.json", "examples/*.json")
+# v2 起增加 objects 合同目录（schema + 正例）
+SCOPE_GLOBS_V2 = SCOPE_GLOBS + ("objects/*.schema.json", "objects/examples/*.json")
+VERSIONS = ("v1", "v2")  # v1 目录已删除的版本里自动跳过
 
 
-def collect(root: Path) -> "dict[str, Path]":
-    base = root / "contracts" / "v1"
+def collect(root: Path, version: str) -> "dict[str, Path]":
+    base = root / "contracts" / version
     found: dict[str, Path] = {}
+    if not base.is_dir():
+        return found
     for name in SCOPE_FILES:
         p = base / name
         if p.is_file():
             found[name] = p
-    for pattern in SCOPE_GLOBS:
+    globs = SCOPE_GLOBS_V2 if version != "v1" else SCOPE_GLOBS
+    for pattern in globs:
         for p in sorted(base.glob(pattern)):
             found[str(p.relative_to(base))] = p
     return found
 
 
-def compare(a_root: Path, b_root: Path) -> "list[str]":
-    a_files = collect(a_root)
-    b_files = collect(b_root)
+def compare(a_root: Path, b_root: Path) -> "tuple[list[str], int]":
     problems: list[str] = []
-    for rel in sorted(set(a_files) | set(b_files)):
-        in_a, in_b = rel in a_files, rel in b_files
-        if in_a and not in_b:
-            problems.append(f"ONLY-IN-A  {rel}")
-        elif in_b and not in_a:
-            problems.append(f"ONLY-IN-B  {rel}")
-        elif not filecmp.cmp(a_files[rel], b_files[rel], shallow=False):
-            problems.append(f"DIFFERS    {rel}")
-    return problems
+    total = 0
+    for version in VERSIONS:
+        a_files = collect(a_root, version)
+        b_files = collect(b_root, version)
+        if not a_files and not b_files:
+            continue  # 两侧都没有该版本（如旧 core 尚无 v2 镜像）不算漂移
+        total += len(set(a_files) | set(b_files))
+        for rel in sorted(set(a_files) | set(b_files)):
+            in_a, in_b = rel in a_files, rel in b_files
+            tag = f"contracts/{version}/{rel}"
+            if in_a and not in_b:
+                problems.append(f"ONLY-IN-A  {tag}")
+            elif in_b and not in_a:
+                problems.append(f"ONLY-IN-B  {tag}")
+            elif not filecmp.cmp(a_files[rel], b_files[rel], shallow=False):
+                problems.append(f"DIFFERS    {tag}")
+    return problems, total
 
 
 def main(argv: "list[str] | None" = None) -> int:
@@ -76,11 +88,11 @@ def main(argv: "list[str] | None" = None) -> int:
         parser.error("需要 --core/--mobile 或 --a/--b")
     a_root, b_root = Path(a), Path(b)
     for label, root in (("A", a_root), ("B", b_root)):
-        if not (root / "contracts" / "v1").is_dir():
-            print(f"error: {label} 侧 {root} 缺少 contracts/v1/", file=sys.stderr)
+        if not (root / "contracts" / "v2").is_dir():
+            print(f"error: {label} 侧 {root} 缺少 contracts/v2/", file=sys.stderr)
             return 2
 
-    problems = compare(a_root, b_root)
+    problems, total = compare(a_root, b_root)
     if problems:
         print(f"contract drift detected ({len(problems)} 处)：")
         for line in problems:
@@ -90,8 +102,7 @@ def main(argv: "list[str] | None" = None) -> int:
             "whale-core 镜像；不要两侧分别改。"
         )
         return 1
-    total = len(collect(a_root))
-    print(f"ok: contracts/v1 范围内 {total} 个文件两侧一致")
+    print(f"ok: contracts v1+v2 范围内 {total} 个文件两侧一致")
     return 0
 
 
