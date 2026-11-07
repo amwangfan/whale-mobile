@@ -4,7 +4,6 @@
          to allow setting breakpoints, to provide hot reload, etc.
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
-    <!-- 调试构建允许明文 ws:// 以便经 Tailscale 直连 dev-gateway 联调；
-         release 构建走 wss://（TLS 由 tailscale serve/反代终结），main manifest 不含此开关。 -->
+    <!-- 仅 Debug 允许 ws:// 连接本地/开发环境；Release 使用 TLS-only 网络配置。 -->
     <application android:usesCleartextTraffic="true"/>
 </manifest>
