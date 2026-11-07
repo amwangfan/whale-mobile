@@ -1,37 +1,43 @@
 import 'dart:async';
 
 import '../../transport/transport_client.dart';
+import '../../transport/transport_client_v2.dart';
 import 'adapter.dart';
 import 'mcp_client.dart';
 
-/// ScreenMemo 模块胶水：把 transport 层的 sensor.query 流接到适配器，
+/// ScreenMemo 模块胶水：把 v2 传输层的 sensor.query 流接到适配器，
 /// 并保证每个 query 都有且仅有一次 sensor.result 回包（异常也回 error）。
 ///
 /// 接线顺序：init() 注册 delegate → Kotlin 才开始把 sensor.query 转发给 Dart；
 /// 此前/模块关闭时由 Kotlin fail-closed 或适配器回 denied，云端不会空等。
+/// （v1 通道已下线：委托与回包走 `whale/transport_v2`；MCP token 的
+/// Keystore 加密存取仍在 `whale/transport` 模块配置面。）
 class ScreenMemoModule {
   /// 默认构造：mcpClient 的 token 经 transport 的 Keystore 加密存储惰性获取。
   factory ScreenMemoModule({
     TransportClient? transport,
+    TransportClientV2? transportV2,
     ScreenMemoMcpClient? mcpClient,
     ScreenMemoAdapter? adapter,
   }) {
     final t = transport ?? TransportClient();
+    final t2 = transportV2 ?? TransportClientV2();
     if (adapter != null) {
-      return ScreenMemoModule._(t, adapter, adapter.client);
+      return ScreenMemoModule._(t, t2, adapter, adapter.client);
     }
     final c =
         mcpClient ?? ScreenMemoMcpClient(tokenProvider: () => t.getMcpToken());
-    return ScreenMemoModule._(t, ScreenMemoAdapter(client: c), c);
+    return ScreenMemoModule._(t, t2, ScreenMemoAdapter(client: c), c);
   }
 
-  ScreenMemoModule._(this.transport, this.adapter, this.mcpClient);
+  ScreenMemoModule._(this.transport, this.transportV2, this.adapter, this.mcpClient);
 
   final TransportClient transport;
+  final TransportClientV2 transportV2;
   final ScreenMemoMcpClient mcpClient;
   final ScreenMemoAdapter adapter;
 
-  StreamSubscription<SensorQuery>? _querySub;
+  StreamSubscription<SensorQueryV2>? _querySub;
   bool _started = false;
 
   /// 默认开（DESIGN.md §3 本地模块开关）。
@@ -41,14 +47,14 @@ class ScreenMemoModule {
   Future<void> init() async {
     if (_started) return;
     _started = true;
-    _querySub = transport.sensorQueries.listen(
+    _querySub = transportV2.sensorQueries.listen(
       _onQuery,
       onError: (Object _) {/* 通道异常不致命，保持订阅 */},
     );
     try {
-      await transport.setSensorQueryDelegate(true);
+      await transportV2.setSensorQueryDelegate(true);
     } catch (_) {
-      // 原生侧不可用时（单元测试环境）静默降级：无 delegate，WssClient fail-closed。
+      // 原生侧不可用时（单元测试环境）静默降级：无 delegate，WssClientV2 fail-closed。
     }
   }
 
@@ -70,7 +76,7 @@ class ScreenMemoModule {
   /// UI 连接测试：ping screenmemo_status。McpException 直接上抛给 UI 展示。
   Future<Map<String, dynamic>> ping() => adapter.ping();
 
-  Future<void> _onQuery(SensorQuery q) async {
+  Future<void> _onQuery(SensorQueryV2 q) async {
     SensorResultReply reply;
     try {
       reply = await adapter
@@ -92,7 +98,7 @@ class ScreenMemoModule {
       reply = SensorResultReply.fail('error', 'internal', '$e');
     }
     try {
-      await transport.sendSensorResult(
+      await transportV2.sendSensorResult(
         requestId: q.requestId,
         status: reply.status,
         data: reply.data,
@@ -105,7 +111,7 @@ class ScreenMemoModule {
   }
 
   /// 处理预算：deadline 前 1s 截断；无 deadline 用 MCP 超时两倍兜底。
-  Duration _replyBudget(SensorQuery q) {
+  Duration _replyBudget(SensorQueryV2 q) {
     if (q.deadline > 0) {
       final remain = q.deadline -
           DateTime.now().millisecondsSinceEpoch -
@@ -121,7 +127,7 @@ class ScreenMemoModule {
     _querySub = null;
     _started = false;
     try {
-      await transport.setSensorQueryDelegate(false);
+      await transportV2.setSensorQueryDelegate(false);
     } catch (_) {
       // 原生侧已销毁（引擎拆卸中）：无需再注销 delegate
     }

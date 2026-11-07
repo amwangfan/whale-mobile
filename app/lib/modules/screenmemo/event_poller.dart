@@ -8,8 +8,8 @@ import 'adapter.dart';
 import 'event_governor.dart';
 import 'mcp_client.dart';
 
-/// sensor.event 上行入口（与 TransportClient.sendSensorEvent 命名参数子集对齐，
-/// 便于单测注入 fake；直接传 `_transport.sendSensorEvent` 即可）。
+/// experience.event 上行入口（与 TransportClientV2.sendExperienceEvent 命名参数
+/// 子集对齐，便于单测注入 fake；直接传 `_transportV2.sendExperienceEvent` 即可）。
 typedef SensorEventSender = Future<String> Function({
   required String kind,
   required String summary,
@@ -19,7 +19,7 @@ typedef SensorEventSender = Future<String> Function({
   String? eventId,
 });
 
-/// ScreenMemo 事件导出轮询器（B1 下半：poll_events → sensor.event 上行）。
+/// ScreenMemo 事件导出轮询器（B1 下半：poll_events → experience.event 上行）。
 ///
 /// 工作方式：
 /// - 条件同时满足才发起 MCP 轮询：模块开（[moduleEnabled]）+ token 已配
@@ -28,7 +28,7 @@ typedef SensorEventSender = Future<String> Function({
 /// - 每 [interval]（默认 15s）调 `poll_events{since_id=游标, limit=pageSize}`；
 ///   游标（SharedPreferences 键 [cursorKey]）仅在事件成功入队后推进并落盘，
 ///   失败/暂停不推进，恢复后从游标续传。
-/// - 事件 → sensor.event：event_id 固定 `sm-<id>`（重启/重装幂等），
+/// - 事件 → experience.event：event_id 固定 `sm-<id>`（重启/重装幂等），
 ///   occurred_at 用事件原值；summary 经 adapter 既有裁剪截到 200 字符；
 ///   整条事件先过 [ScreenMemoAdapter.sanitizeForCloud] 剥除 file_path 类字段。
 /// - 背压：单轮最多 [pageSize] 条；MCP 失败/不可用 → 静默跳过该轮（记日志），

@@ -3,43 +3,53 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:whale_mobile/main.dart';
+import 'package:whale_mobile/modules/module_overview_page.dart';
 
 /// A1 模块总览主页 widget 测试。
-/// MethodChannel `whale/transport` 全程 mock，权限/开关/token 状态确定性可控。
+/// MethodChannel `whale/transport`（模块配置面）与 `whale/transport_v2`（控制面）
+/// 全程 mock，权限/开关/token 状态确定性可控。
 /// 注意：ListView 离屏卡片会被卸载，所有卡片内断言均先滚动定位、再做卡片内 scoped find。
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   const channel = MethodChannel('whale/transport');
+  const channelV2 = MethodChannel('whale/transport_v2');
   final messenger =
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
 
   /// 可调参数的原生侧 mock：[permission] 通知/VoIP 权限；
-  /// [notifReadPermission] 通知监听特殊访问权限；[calls] 记录调用序列。
+  /// [notifReadPermission] 通知监听特殊访问权限；[calls] 记录调用序列（两通道合并）。
   void mockNative({
     String permission = 'granted',
     String? notifReadPermission,
     List<MethodCall>? calls,
   }) {
     bool mediaTokenConfigured = false;
-    messenger.setMockMethodCallHandler(channel, (call) async {
+    // v2 控制面（连接/身份/状态快照/感知委托）
+    messenger.setMockMethodCallHandler(channelV2, (call) async {
       calls?.add(call);
       switch (call.method) {
-        case 'getIdentity':
-        case 'connect':
+        case 'getIdentityV2':
+        case 'connectV2':
           return <String, dynamic>{
             'device_id': 'test-device',
             'public_key_hex': 'ab12',
           };
-        case 'getState':
+        case 'getStateV2':
           return <String, dynamic>{
             'state': 'disconnected',
-            'queue_pending': 0,
-            'queue_sent': 0,
-            'queue_acked': 0,
-            'queue_dropped': 0,
+            'outbox_pending': 0,
+            'outbox_sent': 0,
+            'outbox_acked': 0,
+            'outbox_dropped': 0,
           };
+        default:
+          return null; // disconnectV2/setSensorQueryDelegateV2/...
+      }
+    });
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      calls?.add(call);
+      switch (call.method) {
         case 'getModuleStates':
           return <String, dynamic>{'notification_post': true, 'voip': false};
         case 'getNotificationPermissionStatus':
@@ -87,6 +97,7 @@ void main() {
 
   tearDown(() {
     messenger.setMockMethodCallHandler(channel, null);
+    messenger.setMockMethodCallHandler(channelV2, null);
   });
 
   /// 滚动到指定文本并稳定。
@@ -117,7 +128,7 @@ void main() {
   }
 
   testWidgets('模块总览主页：状态条 + 六模块卡片 + 状态徽章', (tester) async {
-    await tester.pumpWidget(const WhaleApp());
+    await tester.pumpWidget(const MaterialApp(home: ModuleOverviewPage()));
     await tester.pumpAndSettle();
 
     expect(find.text('Whale 模块总览'), findsOneWidget);
@@ -162,7 +173,7 @@ void main() {
     final calls = <MethodCall>[];
     mockNative(permission: 'denied', calls: calls);
 
-    await tester.pumpWidget(const WhaleApp());
+    await tester.pumpWidget(const MaterialApp(home: ModuleOverviewPage()));
     await tester.pumpAndSettle();
 
     await expectInCard(tester, '通知推送', '待授权');
@@ -186,7 +197,7 @@ void main() {
     final calls = <MethodCall>[];
     mockNative(notifReadPermission: 'denied', calls: calls);
 
-    await tester.pumpWidget(const WhaleApp());
+    await tester.pumpWidget(const MaterialApp(home: ModuleOverviewPage()));
     await tester.pumpAndSettle();
 
     await expectInCard(tester, '通知监听', '待授权');
@@ -208,7 +219,7 @@ void main() {
     final calls = <MethodCall>[];
     mockNative(calls: calls);
 
-    await tester.pumpWidget(const WhaleApp());
+    await tester.pumpWidget(const MaterialApp(home: ModuleOverviewPage()));
     await tester.pumpAndSettle();
 
     await expectInCard(tester, '设备动作', '已停用'); // 默认关
@@ -232,7 +243,7 @@ void main() {
     final calls = <MethodCall>[];
     mockNative(calls: calls);
 
-    await tester.pumpWidget(const WhaleApp());
+    await tester.pumpWidget(const MaterialApp(home: ModuleOverviewPage()));
     await tester.pumpAndSettle();
 
     // 进入白名单多选页
@@ -275,7 +286,7 @@ void main() {
     final calls = <MethodCall>[];
     mockNative(calls: calls);
 
-    await tester.pumpWidget(const WhaleApp());
+    await tester.pumpWidget(const MaterialApp(home: ModuleOverviewPage()));
     await tester.pumpAndSettle();
 
     // 通知卡片开关：关闭 → setModuleEnabled(notification_post, false) + 徽章「已停用」
@@ -300,7 +311,7 @@ void main() {
     final calls = <MethodCall>[];
     mockNative(calls: calls);
 
-    await tester.pumpWidget(const WhaleApp());
+    await tester.pumpWidget(const MaterialApp(home: ModuleOverviewPage()));
     await tester.pumpAndSettle();
 
     // 暂停（AppBar）
@@ -351,7 +362,7 @@ void main() {
           .length,
       greaterThanOrEqualTo(2),
     );
-    expect(calls.any((c) => c.method == 'disconnect'), isTrue);
+    expect(calls.any((c) => c.method == 'disconnectV2'), isTrue);
 
     // 恢复：逆向（清标志 + 还原暂停前为开的模块开关）
     await tester.tap(find.text('恢复全部'));
@@ -370,7 +381,7 @@ void main() {
       greaterThanOrEqualTo(2),
     );
     // 暂停前传输未连接 → 恢复不回连
-    expect(calls.any((c) => c.method == 'connect'), isFalse);
+    expect(calls.any((c) => c.method == 'connectV2'), isFalse);
     // 徽章回到推导态
     await expectInCard(tester, '通知推送', '已启用');
   });
@@ -378,7 +389,7 @@ void main() {
   testWidgets('VoIP 媒体凭据遮罩、保存留空保留与显式清除', (tester) async {
     final calls = <MethodCall>[];
     mockNative(calls: calls);
-    await tester.pumpWidget(const WhaleApp());
+    await tester.pumpWidget(const MaterialApp(home: ModuleOverviewPage()));
     await tester.pumpAndSettle();
     await scrollTo(tester, '独立媒体 BRIDGE_TOKEN');
     final tokenField = find.byWidgetPredicate((widget) =>
@@ -410,18 +421,18 @@ void main() {
   });
 
   testWidgets('可折叠连接测试区与日志区', (tester) async {
-    await tester.pumpWidget(const WhaleApp());
+    await tester.pumpWidget(const MaterialApp(home: ModuleOverviewPage()));
     await tester.pumpAndSettle();
 
     // 连接测试区（折叠态）：展开后可见网关地址/连接/断开/测试事件
     await scrollTo(tester, '连接测试');
     await tester.tap(find.text('连接测试'));
     await tester.pumpAndSettle();
-    await scrollTo(tester, '发送测试 sensor.event');
+    await scrollTo(tester, '发送测试 experience.event');
     expect(find.text('网关地址'), findsOneWidget);
     expect(find.text('连接'), findsOneWidget);
     expect(find.text('断开'), findsOneWidget);
-    expect(find.text('发送测试 sensor.event'), findsOneWidget);
+    expect(find.text('发送测试 experience.event'), findsOneWidget);
 
     // 日志区
     await scrollTo(tester, '日志');
