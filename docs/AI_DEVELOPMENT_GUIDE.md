@@ -53,7 +53,7 @@ NodeRuntimeV2（Application 单例）── NodeServiceV2
 | V2 协议与样例 | `contracts/v2/` |
 | 真机记录 | `docs/STATUS.md`、`docs/SETUP-MAGIC8.md` |
 
-`modules/voip/` 仍含旧独立 APK 的重复源码，清理工作跟踪在 #35；当前宿主运行时以 `app/android` 为准。
+旧独立 VoIP APK 与重复源码已清理；`modules/voip/docs/` 是历史设计资料，唯一生产实现为 `app/android`。媒体鉴权单测位于 `tests/test_voip_media_security.py`。
 
 ## 4. 实际能力边界
 
@@ -73,16 +73,16 @@ cd app
 flutter pub get
 flutter test
 flutter analyze
-flutter build apk --debug
+flutter build apk --debug --flavor daily
+flutter build apk --debug --flavor root
 cd android
-./gradlew :app:testDebugUnitTest
+./gradlew :app:testDailyDebugUnitTest :app:testRootDebugUnitTest
 ```
 
 仓库 CI 采用手动 `workflow_dispatch`，可选择 `contracts`、`app`、`secret-scan` 或 `all`。没有实际运行记录时不要声称 CI 通过。模拟测试、跨仓契约检查和真机验收是不同证据。
 
 ## 6. 当前仍需完成的工作
 
-- #35：清理 `modules/voip/` 中的旧独立 APK 重复源码，保留宿主唯一实现。
 - #39：继续把 `main.dart` 收敛为应用装配与路由入口。
 - #40：本机 flutter_tester 残留进程诊断工具。
 - Root 手机 Bilibili 完整自主任务链由 Core #58 与本仓 Agent2 联合验收。
