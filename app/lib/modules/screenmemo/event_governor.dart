@@ -203,16 +203,17 @@ class EventGovernor {
 
   // ---- simhash（64 位，字符 bigram 特征） ----
 
+  static final RegExp _whitespace = RegExp(r'\s+');
+
   static int simhash64(String text) {
     final weights = List<int>.filled(64, 0);
-    final features = <String>[];
-    final clean = text.replaceAll(RegExp(r'\s+'), '');
-    for (var i = 0; i < clean.length - 1; i++) {
-      features.add(clean.substring(i, i + 2));
-    }
-    if (features.isEmpty && clean.isNotEmpty) features.add(clean);
-    for (final f in features) {
-      final h = _fnv1a64(f);
+    final clean = text.replaceAll(_whitespace, '');
+    // 不生成中间 bigram 列表，直接流式累计哈希权重。
+    final count = clean.length < 2 ? clean.length : clean.length - 1;
+    for (var i = 0; i < count; i++) {
+      final h = _fnv1a64(
+        clean.length < 2 ? clean : clean.substring(i, i + 2),
+      );
       for (var b = 0; b < 64; b++) {
         if ((h >> b) & 1 == 1) {
           weights[b]++;
