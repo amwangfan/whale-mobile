@@ -33,11 +33,11 @@ Flutter UI
 
 同一 Android 工程提供 `daily` 与 `root` 两个 flavor：
 
-- daily 只声明两版共有的观察、UI、通知、通话和眼镜能力。
+- daily 声明并使用两版共有的观察、UI、通知、通话和眼镜能力；普通 UI 操控走已授权的 Android 无障碍服务，不执行 su。
 - root 额外声明 Shell、文件、logcat、应用安装/卸载和屏幕录制能力。
 - `CapabilityRegistry` 决定 hello 实际声明的能力；Core 再按设备配对 scope 收窄 accepted_capabilities。
 
-设备 flavor 是设备形态，不自动授予 scope；Root 手机持续授权在端侧开关和 Core scope 两侧共同生效。
+设备 flavor 是设备形态，不自动授予 scope；无障碍需用户在系统设置启用，Root 手机持续授权在端侧开关和 Core scope 两侧共同生效。操作结果不明时不跨后端重试。
 
 ## 4. 主要模块
 
@@ -45,7 +45,7 @@ Flutter UI
 | --- | --- | --- |
 | 传输与回执 | `transport/v2/` | 握手、心跳、队列、序号、回执与幂等 |
 | 后台服务 | `runtime/v2/` | 连接生命周期、前台服务、启动恢复 |
-| Agent2 | `modules/agent2/` | observe、点击、滑动、输入、Shell、文件与停止 |
+| Agent2 | `modules/agent2/` | observe、点击、滑动、输入；Root 版保留 Shell、文件与日志。两版共享动作契约，daily 使用 ShadowCaptureService 的无障碍能力 |
 | Notification2 | `modules/notification2/` | 原生通知、按钮动作、撤回与展示回执 |
 | Recording | `modules/recording/` | Root flavor MediaProjection 录制 |
 | Capture | `modules/capture/` | 屏幕采集、OCR、事件与 ScreenMemo 整合 |
