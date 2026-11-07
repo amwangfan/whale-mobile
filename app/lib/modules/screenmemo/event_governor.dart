@@ -1,14 +1,14 @@
-/// EV-01（Issue #11）增量感知数据治理：预算、合并、去重、隐私过滤。
+/// ScreenMemo 事件去重与可选过滤。纯 Dart 逻辑，可独立测试。
 ///
-/// 纯逻辑（无平台依赖，可单测）。策略（全部默认开启，逐条可解释）：
+/// 默认只做短时间的重复合并与隐私标签过滤；过期丢弃和数量预算需显式配置：
 /// - **过期丢弃**：occurred_at 早于 now-staleMs 的事件不补传（stale）；
 /// - **隐私过滤**：App 标签命中默认拒绝关键词（输入法/锁屏/支付等）或
 ///   用户黑名单 → 丢弃（filtered）；用户白名单可豁免默认关键词；
 /// - **时间窗合并**：同 App 同 kind 在 mergeWindowMs 内重复出现 → 丢弃
 ///   （merged；保留首条）；
-/// - **simhash 去重**：同 App 正文 simhash 汉明距离 ≤ 阈值 → 丢弃
+/// - **simhash 去重**：同 App、同 kind 在短时间内相似正文 → 丢弃
 ///   （simhash_dup；OCR 摘要几乎不变的刷屏抑制）；
-/// - **隐私预算**：每 App 每小时 / 全局每小时 上限，超限丢弃（budget）。
+/// - **数量预算**：可选每 App / 全局小时上限（0 = 不限制）。
 ///
 /// 所有丢弃都计数（stats 可观测）；被丢弃事件的游标照常推进
 /// （治理决定是终态，不补传）。
@@ -16,10 +16,11 @@ library;
 
 /// 治理判决。
 class GovernorDecision {
-  const GovernorDecision.pass() : pass = true, reason = null;
-  const GovernorDecision.drop(this.reason) : pass = false;
+  const GovernorDecision.pass({this.bodyHash}) : pass = true, reason = null;
+  const GovernorDecision.drop(this.reason) : pass = false, bodyHash = null;
 
   final bool pass;
+  final int? bodyHash;
 
   /// 丢弃原因：stale / filtered / merged / simhash_dup / budget_app / budget_total
   final String? reason;
@@ -56,11 +57,12 @@ class GovernedEvent {
 
 class EventGovernor {
   EventGovernor({
-    this.perAppPerHour = 12,
-    this.totalPerHour = 120,
+    this.perAppPerHour = 0,
+    this.totalPerHour = 0,
     this.mergeWindowMs = 60 * 1000,
     this.simhashThreshold = 4,
-    this.staleMs = 10 * 60 * 1000,
+    this.simhashWindowMs = 5 * 60 * 1000,
+    this.staleMs = 0,
     List<String>? extraDenyKeywords,
     List<String> userAllowLabels = const [],
     List<String> userDenyLabels = const [],
@@ -72,6 +74,7 @@ class EventGovernor {
   final int totalPerHour;
   final int mergeWindowMs;
   final int simhashThreshold;
+  final int simhashWindowMs;
   final int staleMs;
 
   /// 默认拒绝关键词（App 标签包含即过滤；输入法/锁屏/支付/钱包类）。
@@ -89,17 +92,29 @@ class EventGovernor {
   final List<int> _totalTimestamps = [];
   final Map<String, int> _lastSimhash = {};
   final Map<String, int> _lastAt = {};
-  final Map<String, String> _lastKind = {};
   final Map<String, int> _stats = {};
 
   /// 治理统计（reason → count；passed 为通过数）。
   Map<String, int> get stats => Map.unmodifiable(_stats);
 
-  GovernorDecision decide(GovernedEvent e, int nowMs) {
-    // 1. 过期不补传
-    if (e.occurredAtMs < nowMs - staleMs) return _drop('stale');
+  /// 只判定，不占用去重窗口或预算。用于发送前检查。
+  /// 丢弃判定计入统计；通过的事件应在确认入队后调用 [recordAccepted]。
+  GovernorDecision inspect(GovernedEvent e, int nowMs) =>
+      _decide(e, nowMs, recordPass: false);
 
-    // 2. 隐私过滤（用户白名单可豁免默认关键词；用户黑名单强制）
+  /// 适合纯同步调用的判定与记账入口。
+  GovernorDecision decide(GovernedEvent e, int nowMs) =>
+      _decide(e, nowMs, recordPass: true);
+
+  GovernorDecision _decide(
+    GovernedEvent e,
+    int nowMs, {
+    required bool recordPass,
+  }) {
+    if (staleMs > 0 && e.occurredAtMs < nowMs - staleMs) {
+      return _drop('stale');
+    }
+
     final label = e.appLabel;
     if (label.isNotEmpty) {
       final lower = label.toLowerCase();
@@ -113,39 +128,57 @@ class EventGovernor {
       }
     }
 
-    // 3. 时间窗合并（同 App 同 kind）
-    final lastAt = _lastAt[label];
-    if (lastAt != null &&
-        _lastKind[label] == e.kind &&
-        e.occurredAtMs - lastAt < mergeWindowMs) {
+    // 按 App 与事件类型分别去重，避免跨类型误判。
+    final key = '$label|\u0024{e.kind}';
+    final lastAt = _lastAt[key];
+    final delta = lastAt == null ? null : e.occurredAtMs - lastAt;
+    if (mergeWindowMs > 0 &&
+        delta != null &&
+        delta >= 0 &&
+        delta < mergeWindowMs) {
       return _drop('merged');
     }
 
-    // 4. simhash 去重（同 App 正文近重复）
     final body = e.body;
-    if (body.isNotEmpty) {
-      final sh = simhash64(body);
-      final prev = _lastSimhash[label];
-      if (prev != null && hamming64(prev, sh) <= simhashThreshold) {
-        return _drop('simhash_dup');
+    final bodyHash = body.isEmpty || simhashThreshold < 0
+        ? null
+        : simhash64(body);
+    if (bodyHash != null &&
+        simhashWindowMs > 0 &&
+        delta != null &&
+        delta >= 0 &&
+        delta <= simhashWindowMs &&
+        _lastSimhash[key] != null &&
+        hamming64(_lastSimhash[key]!, bodyHash) <= simhashThreshold) {
+      return _drop('simhash_dup');
+    }
+
+    if (perAppPerHour > 0 || totalPerHour > 0) {
+      _prune(nowMs);
+      if (perAppPerHour > 0 &&
+          (_appTimestamps[label]?.length ?? 0) >= perAppPerHour) {
+        return _drop('budget_app');
+      }
+      if (totalPerHour > 0 && _totalTimestamps.length >= totalPerHour) {
+        return _drop('budget_total');
       }
     }
 
-    // 5. 隐私预算（滑动 1h 窗口）
-    _prune(nowMs);
-    if ((_appTimestamps[label]?.length ?? 0) >= perAppPerHour) {
-      return _drop('budget_app');
-    }
-    if (_totalTimestamps.length >= totalPerHour) return _drop('budget_total');
+    if (recordPass) recordAccepted(e, bodyHash: bodyHash);
+    return GovernorDecision.pass(bodyHash: bodyHash);
+  }
 
-    // 通过：记账
-    _appTimestamps.putIfAbsent(label, () => []).add(e.occurredAtMs);
-    _totalTimestamps.add(e.occurredAtMs);
-    if (body.isNotEmpty) _lastSimhash[label] = simhash64(body);
-    _lastAt[label] = e.occurredAtMs;
-    _lastKind[label] = e.kind;
+  /// 只有事件成功入队后才占用去重窗口和数量预算。
+  void recordAccepted(GovernedEvent e, {int? bodyHash}) {
+    final label = e.appLabel;
+    final key = '$label|\u0024{e.kind}';
+    if (perAppPerHour > 0) {
+      _appTimestamps.putIfAbsent(label, () => []).add(e.occurredAtMs);
+    }
+    if (totalPerHour > 0) _totalTimestamps.add(e.occurredAtMs);
+    if (bodyHash != null) _lastSimhash[key] = bodyHash;
+    _lastAt[key] = e.occurredAtMs;
     _stats['passed'] = (_stats['passed'] ?? 0) + 1;
-    return const GovernorDecision.pass();
   }
 
   GovernorDecision _drop(String reason) {
