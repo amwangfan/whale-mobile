@@ -31,9 +31,8 @@ object CaptureModule {
 
     /** 数据源切换审计（filesDir/capture/datasource_audit.log；不含内容）。 */
 
-    /** 排除包名（whale_capture/excluded_packages，Set）。 */
+    /** 采集模块私有 prefs（data_source 等；排除包名读写见 [ExcludedPackagesStore]）。 */
     private const val EXCLUDED_PREFS = "whale_capture"
-    private const val KEY_EXCLUDED = "excluded_packages"
 
     /** 独立 ScreenMemo 的无障碍服务组件前缀（采集互斥判定）。 */
     private const val SCREENMEMO_ACCESSIBILITY_PREFIX = "com.fqyw.screen_memo/"
@@ -61,9 +60,17 @@ object CaptureModule {
     }
 
     fun excludedPackages(context: Context): Set<String> =
-        context.applicationContext
-            .getSharedPreferences(EXCLUDED_PREFS, Context.MODE_PRIVATE)
-            .getStringSet(KEY_EXCLUDED, emptySet())?.toSet() ?: emptySet()
+        ExcludedPackagesStore(context.applicationContext).get()
+
+    /** Phase 3：排除包名写接口（隐私遮罩配置）。 */
+    fun setExcludedPackages(context: Context, packages: Set<String>) =
+        ExcludedPackagesStore(context.applicationContext).set(packages)
+
+    fun addExcludedPackage(context: Context, packageName: String): Boolean =
+        ExcludedPackagesStore(context.applicationContext).add(packageName)
+
+    fun removeExcludedPackage(context: Context, packageName: String): Boolean =
+        ExcludedPackagesStore(context.applicationContext).remove(packageName)
 
     /**
      * 独立 ScreenMemo 的无障碍采集是否已启用（启用即视为其在采集，触发互斥）。

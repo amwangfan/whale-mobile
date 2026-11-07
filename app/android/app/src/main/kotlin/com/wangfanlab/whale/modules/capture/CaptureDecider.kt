@@ -1,5 +1,58 @@
 package com.wangfanlab.whale.modules.capture
 
+import android.content.Context
+
+/**
+ * 隐私遮罩基础（Phase 3）：用户排除包名集合的持久化读写。
+ *
+ * 存于 SharedPreferences `whale_capture/excluded_packages`（StringSet）；
+ * [CaptureDecider.shouldCapture] 命中即 skip（`excluded_package`）——
+ * 被排除应用**不截屏、不 OCR、不留存任何痕迹**。
+ * 读写均做规范化（trim、去空白、去重）。
+ */
+class ExcludedPackagesStore(context: Context) {
+
+    private val prefs = context.applicationContext
+        .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    /** 当前排除集合（只读快照）。 */
+    fun get(): Set<String> =
+        prefs.getStringSet(KEY, emptySet())?.toSet() ?: emptySet()
+
+    /** 整体覆盖（规范化后落盘）。 */
+    fun set(packages: Set<String>) {
+        prefs.edit().putStringSet(KEY, normalize(packages)).apply()
+    }
+
+    /** 添加单个包名；已在集合中返回 false。 */
+    fun add(packageName: String): Boolean {
+        val pkg = packageName.trim()
+        if (pkg.isEmpty()) return false
+        val cur = get()
+        if (pkg in cur) return false
+        prefs.edit().putStringSet(KEY, cur + pkg).apply()
+        return true
+    }
+
+    /** 移除单个包名；不存在返回 false。 */
+    fun remove(packageName: String): Boolean {
+        val pkg = packageName.trim()
+        val cur = get()
+        if (pkg !in cur) return false
+        prefs.edit().putStringSet(KEY, cur - pkg).apply()
+        return true
+    }
+
+    /** 规范化：去空白、去重（包名大小写敏感，Android 包名均小写，不做大小写折叠）。 */
+    private fun normalize(packages: Set<String>): Set<String> =
+        packages.map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+
+    companion object {
+        const val PREFS_NAME = "whale_capture"
+        const val KEY = "excluded_packages"
+    }
+}
+
 /**
  * 采集决策（SM-01 影子模式，纯逻辑可单测）。
  * 思路借鉴 ScreenMemo 的截图去重/过滤（署名见 README 致谢），

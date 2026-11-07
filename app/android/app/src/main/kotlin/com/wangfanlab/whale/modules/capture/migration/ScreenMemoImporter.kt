@@ -35,6 +35,9 @@ class ScreenMemoImporter(
         val rowsSkippedDeleted: Int,
         val errors: List<String>,
         val backupDir: String,
+        /** Phase 3：旧库收藏/备注映射入库数（旧库无对应表时为 0）。 */
+        val favoritesImported: Int = 0,
+        val notesImported: Int = 0,
     )
 
     data class Validation(
@@ -86,6 +89,8 @@ class ScreenMemoImporter(
         var imported = 0
         var dup = 0
         var deleted = 0
+        var favs = 0
+        var notesCnt = 0
         for (shard in shards) {
             try {
                 // 备份先行（可复制才导入）
@@ -105,6 +110,10 @@ class ScreenMemoImporter(
                             " AND name NOT LIKE '%_fts%' AND name != 'android_metadata' AND name != 'sqlite_sequence'",
                         null,
                     ).use { c -> generateSequence { if (c.moveToNext()) c.getString(0) else null }.toList() }
+                    // Phase 3：源记录 → 目标行 id 映射（收藏/备注关联保留用；
+                    // 含 checkpoint 之前的既有行，靠去重键反查补齐）
+                    val srcByTime = mutableMapOf<Long, Long>()
+                    val srcByPath = mutableMapOf<String, Long>()
                     store.writableDatabase.beginTransaction()
                     try {
                         for (table in tables) {
@@ -132,10 +141,24 @@ class ScreenMemoImporter(
                                             imagePath = "", // 迁移条目无本地图像（可选后续拷贝）
                                         ),
                                     )
-                                    if (id < 0) dup++ else imported++
+                                    val targetId = if (id >= 0) {
+                                        imported++
+                                        id
+                                    } else {
+                                        dup++
+                                        // 冲突行：反查既有目标 id（收藏/备注映射不丢关联）
+                                        store.findIdByKey(ts, pkg, 0L)
+                                    }
+                                    if (targetId != null) {
+                                        srcByTime[ts] = targetId
+                                        if (!c.isNull(1)) srcByPath[c.getString(1)] = targetId
+                                    }
                                 }
                             }
                         }
+                        // Phase 3：旧库若有收藏/备注表则一并映射（无则跳过，兼容旧版导出）
+                        favs += importLegacyFavorites(db, srcByTime, srcByPath)
+                        notesCnt += importLegacyNotes(db, srcByTime, srcByPath)
                         store.writableDatabase.setTransactionSuccessful()
                     } finally {
                         store.writableDatabase.endTransaction()
@@ -148,7 +171,114 @@ class ScreenMemoImporter(
                 errors.add("${shard.name}: ${t.message}")
             }
         }
-        return ImportReport(shards.size, imported, dup, deleted, errors, backupDir.path)
+        return ImportReport(
+            shards.size, imported, dup, deleted, errors, backupDir.path,
+            favoritesImported = favs, notesImported = notesCnt,
+        )
+    }
+
+    // ------------------------------------------------------------- Phase 3：收藏/备注映射
+
+    /** 旧分库是否存在某表。 */
+    private fun hasTable(db: SQLiteDatabase, name: String): Boolean = db.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name = ?",
+        arrayOf(name),
+    ).use { it.moveToFirst() }
+
+    /** 表列名集合（列名嗅探，兼容旧版 schema 差异）。 */
+    private fun columnsOf(db: SQLiteDatabase, table: String): Set<String> =
+        db.rawQuery("PRAGMA table_info($table)", null).use { c ->
+            val out = mutableSetOf<String>()
+            val idx = c.getColumnIndex("name")
+            while (c.moveToNext()) out.add(c.getString(idx))
+            out
+        }
+
+    /** 源行 → 目标截图 id：优先 capture_time 列，其次 file_path 列。 */
+    private fun resolveTarget(
+        c: android.database.Cursor,
+        cols: Set<String>,
+        srcByTime: Map<Long, Long>,
+        srcByPath: Map<String, Long>,
+    ): Long? {
+        if ("capture_time" in cols) {
+            val idx = c.getColumnIndex("capture_time")
+            if (!c.isNull(idx)) srcByTime[c.getLong(idx)]?.let { return it }
+        }
+        if ("file_path" in cols) {
+            val idx = c.getColumnIndex("file_path")
+            if (!c.isNull(idx)) srcByPath[c.getString(idx)]?.let { return it }
+        }
+        return null
+    }
+
+    private fun pickText(c: android.database.Cursor, cols: Set<String>, vararg names: String): String? {
+        for (n in names) {
+            if (n in cols) {
+                val idx = c.getColumnIndex(n)
+                if (!c.isNull(idx)) return c.getString(idx)
+            }
+        }
+        return null
+    }
+
+    /**
+     * 旧库收藏表（favorites）→ 新 favorites。幂等靠收藏的 capture 唯一索引；
+     * 无法映射到已导入截图的行跳过（返回导入数）。
+     */
+    private fun importLegacyFavorites(
+        db: SQLiteDatabase,
+        srcByTime: Map<Long, Long>,
+        srcByPath: Map<String, Long>,
+    ): Int {
+        if (!hasTable(db, "favorites")) return 0
+        val cols = columnsOf(db, "favorites")
+        if ("capture_time" !in cols && "file_path" !in cols) {
+            Log.w(TAG, "旧库 favorites 表无 capture_time/file_path 列，跳过（列=$cols）")
+            return 0
+        }
+        var n = 0
+        db.rawQuery("SELECT * FROM favorites", null).use { c ->
+            while (c.moveToNext()) {
+                val target = resolveTarget(c, cols, srcByTime, srcByPath) ?: continue
+                val note = pickText(c, cols, "note", "text", "content")
+                val createdAt = pickText(c, cols, "created_at")?.toLongOrNull()
+                    ?: System.currentTimeMillis()
+                if (store.addFavorite(captureId = target, note = note, createdAt = createdAt) >= 0) n++
+            }
+        }
+        return n
+    }
+
+    /**
+     * 旧库备注表（notes）→ 新 notes。幂等靠同目标同文同创建时间查重；
+     * 无法映射的行跳过（返回导入数）。
+     */
+    private fun importLegacyNotes(
+        db: SQLiteDatabase,
+        srcByTime: Map<Long, Long>,
+        srcByPath: Map<String, Long>,
+    ): Int {
+        if (!hasTable(db, "notes")) return 0
+        val cols = columnsOf(db, "notes")
+        if ("capture_time" !in cols && "file_path" !in cols) {
+            Log.w(TAG, "旧库 notes 表无 capture_time/file_path 列，跳过（列=$cols）")
+            return 0
+        }
+        var n = 0
+        db.rawQuery("SELECT * FROM notes", null).use { c ->
+            while (c.moveToNext()) {
+                val target = resolveTarget(c, cols, srcByTime, srcByPath) ?: continue
+                val text = pickText(c, cols, "text", "content", "note") ?: continue
+                if (text.isBlank()) continue
+                val createdAt = pickText(c, cols, "created_at")?.toLongOrNull()
+                    ?: System.currentTimeMillis()
+                if (store.noteExists(target, null, text, createdAt)) continue
+                store.addNote(captureId = target, text = text, createdAt = createdAt)
+                n++
+            }
+        }
+        return n
     }
 
     private fun findShards(dbDir: File): List<File> {

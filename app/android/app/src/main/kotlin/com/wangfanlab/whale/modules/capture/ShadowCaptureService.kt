@@ -10,7 +10,8 @@ import android.os.HandlerThread
 import android.os.PowerManager
 import android.view.Display
 import android.view.accessibility.AccessibilityEvent
-import com.wangfanlab.whale.runtime.NodeRuntime
+import com.wangfanlab.whale.runtime.PauseFlags
+import com.wangfanlab.whale.runtime.v2.NodeRuntimeV2
 
 /**
  * 影子采集服务（SM-01，Issue #8）。
@@ -107,7 +108,7 @@ class ShadowCaptureService : AccessibilityService() {
         val foreground = currentForegroundPackage()
         val decision = CaptureDecider.shouldCapture(
             moduleEnabled = CaptureModule.isEnabled(this),
-            allPaused = NodeRuntime.isAllPaused(this),
+            allPaused = PauseFlags.isAllPaused(this),
             conflictWithStandalone = CaptureModule.standaloneScreenMemoActive(this),
             deviceLocked = locked,
             foregroundPackage = foreground,
@@ -168,7 +169,7 @@ class ShadowCaptureService : AccessibilityService() {
                         CaptureStats.noteUnique(latencyMs)
                         // SM-02：非影子模式（persist 开启）→ 存图 + OCR + 索引
                         if (persist && bitmap != null) {
-                            val rowId = com.wangfanlab.whale.runtime.NodeRuntime.peek()
+                            val rowId = NodeRuntimeV2.peek()
                                 ?.capturePipeline?.process(
                                     bitmap = bitmap,
                                     dhash = hash,
