@@ -2,7 +2,7 @@
 
 日期：2026-11-08。分支：`refactor/v2-integration`；上游基线：`646c4ec`。
 
-[查看第 01–10 轮更新说明](https://github.com/dreaminutes/whale-core/blob/refactor/v2-integration/docs/v2-updates/README.md)
+[查看第 01–15 轮更新说明](https://github.com/dreaminutes/whale-core/blob/refactor/v2-integration/docs/v2-updates/README.md)
 
 第 01–04 轮修复位于 Core：统一协议路径、严格加载 schema、补齐发布包中的协议、修复动作和查询预检。Mobile 的 V2 协议和 Android 实现保持现状，不重复搬入 Core 逻辑。
 
@@ -12,6 +12,15 @@
 
 最新联合验证：68 个契约文件两侧一致；本仓 `tests/contract_validate.py` 为 72/72，工具测试 4/4；Core 相关回归 165/165。没有 Android 真机或 APK 构建验收结果。
 
-端侧输出读取 offset/max_bytes 分页尚待后续实现与 Android 验证，本轮没有将其标为完成。
+第 11–15 轮扩大为完整链路改动：
+
+- 11：新增随机文件字节分页与旧输出适配，canonical PROTOCOL §7.4 同步 Core。
+- 12：观察采集真正遵守截图/UI 树开关、元素数量上限；Core 接通完整观察解析。
+- 13–14：Core 持久只读对账、按会话收束查询/动作/确认，Mobile 不重复实现这些职责。
+- 15：补齐 Agent2Runtime 分页门面与客户端重建后的 dispatcher 重绑定；page_format=bytes.v1 显式启用分页，保留旧调用格式。
+
+最新验证：Core **249/249**；Mobile 隔离纯 JVM **18/18**、协议 **72/72**、工具 **4/4**；**68 个契约文件一致**。Kotlin 实际生成的 203 页、202048 字节经过 Core 校验并完整重组，字节一致。
+
+端侧分页逻辑已实现并验证，仍缺 Flutter/Android SDK/JDK17 环境下的完整 APK 编译与真机验收；JVM 测试不代表 Android 组件已构建。原有单参数 readOutput 与未协商分页的输出形状保留。
 
 保留旧工作分支；本轮未修改 snow 的主分支，也未重开旧 PR #48。

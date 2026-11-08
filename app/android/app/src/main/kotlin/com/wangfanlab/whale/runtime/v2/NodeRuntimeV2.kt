@@ -765,9 +765,9 @@ class NodeRuntimeV2 private constructor(
             // agent2 已装配时优先走其输出仓库（§10 引用白名单）；否则回退 v1 agentModule
             val hook = agent2ReadOutputHook
             val output = try {
-                val page = OutputPages.request(filters)
-                agent2ReadOutputPageHook?.invoke(ref, page.offset, page.maxBytes)
-                    ?: OutputPages.legacy(hook?.invoke(ref) ?: agentModule.readOutput(ref), page)
+                OutputPages.resolve(ref, filters, agent2ReadOutputPageHook) {
+                    hook?.invoke(ref) ?: agentModule.readOutput(ref)
+                }
             } catch (e: IllegalArgumentException) {
                 mapOf("error" to "invalid_argument")
             } catch (e: Exception) {

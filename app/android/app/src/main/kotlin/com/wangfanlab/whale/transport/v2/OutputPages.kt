@@ -9,6 +9,14 @@ object OutputPages {
     const val MAX_PAGE_BYTES = 48 * 1024
     data class Request(val offset: Long, val maxBytes: Int)
 
+    fun resolve(ref: String, filters: Map<String, Any?>,
+        paged: ((String, Long, Int) -> Map<String, Any?>)?,
+        legacySource: () -> Map<String, Any?>): Map<String, Any?> {
+        if (filters["page_format"] != "bytes.v1") return legacySource()
+        val page = request(filters)
+        return paged?.invoke(ref, page.offset, page.maxBytes) ?: legacy(legacySource(), page)
+    }
+
     fun reader(target: Any): ((String, Long, Int) -> Map<String, Any?>)? {
         val method = target.javaClass.methods.firstOrNull {
             it.name == "readOutput" && it.parameterTypes.contentEquals(

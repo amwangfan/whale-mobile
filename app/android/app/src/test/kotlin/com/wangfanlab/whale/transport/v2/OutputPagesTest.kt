@@ -10,6 +10,29 @@ import java.util.Base64
 class OutputPagesTest {
     @get:Rule val files = TemporaryFolder()
 
+    @Test fun oldQueryPreservesOriginalOutputShape() {
+        val original = mapOf("text" to "old format", "content_type" to "text")
+        val result = OutputPages.resolve("ref", mapOf("offset" to 0),
+            { _, _, _ -> throw AssertionError("paging was not requested") }) { original }
+        assertEquals(original, result)
+    }
+
+    @Test fun explicitPageFormatUsesPagedSource() {
+        val result = OutputPages.resolve("ref", mapOf("page_format" to "bytes.v1", "offset" to 3.0),
+            { ref, offset, limit -> mapOf("ref" to ref, "offset" to offset, "limit" to limit) }) {
+            throw AssertionError("paged source is available")
+        }
+        assertEquals(mapOf("ref" to "ref", "offset" to 3L, "limit" to OutputPages.MAX_PAGE_BYTES), result)
+    }
+
+    @Test fun requestedPagesCanAdaptExistingOutputProvider() {
+        val page = OutputPages.resolve("ref", mapOf("page_format" to "bytes.v1", "max_bytes" to 2), null) {
+            mapOf("text" to "abcdef")
+        }
+        assertArrayEquals("ab".toByteArray(), Base64.getDecoder().decode(page["bytes_b64"] as String))
+        assertEquals(true, page["truncated"])
+    }
+
     class Source {
         fun readOutput(ref: String) = mapOf("text" to ref)
         fun readOutput(ref: String, offset: Long, maxBytes: Int) =
