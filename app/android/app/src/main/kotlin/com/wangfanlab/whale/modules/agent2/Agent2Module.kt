@@ -2,6 +2,7 @@ package com.wangfanlab.whale.modules.agent2
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.os.PowerManager
 import android.graphics.BitmapFactory
 import android.util.Base64
 import android.util.Log
@@ -740,6 +741,10 @@ class Agent2Module(
                 once.reply(fail(ErrorCodeV2.ESTOP_ACTIVE, "紧急停止激活，拒绝观察"))
                 return@execute
             }
+            // 灭屏时无障碍读不到窗口内容：先短暂唤醒（WAKE_LOCK +
+            // ACQUIRE_CAUSES_WAKEUP），观察完成后由 ON_AFTER_RELEASE 自动还原。
+            // 用户设定：允许灭屏、不锁屏；观察即真实使用，故唤醒是忠实执行。
+            wakeScreenForObserve()
             val xml = uiTreeSource.dump()
             if (xml == null) {
                 once.reply(
@@ -793,6 +798,31 @@ class Agent2Module(
         }
     }
 
+    /**
+     * 灭屏时短暂点亮屏幕以读取窗口内容（nova 实测：灭屏/Dozing 下
+     * 无障碍 rootInActiveWindow 为空 → UI 树不可用）。
+     * 用 deprecated 的 SCREEN_BRIGHT_WAKE_LOCK + ACQUIRE_CAUSES_WAKEUP 是
+     * 唯一不需要系统权限的唤醒路径；ON_AFTER_RELEASE 让屏幕随后自然熄灭。
+     */
+    private fun wakeScreenForObserve() {
+        try {
+            val pm = appContext.getSystemService(Context.POWER_SERVICE) as PowerManager
+            if (pm.isInteractive) return
+            @Suppress("DEPRECATION")
+            val lock = pm.newWakeLock(
+                PowerManager.SCREEN_BRIGHT_WAKE_LOCK
+                    or PowerManager.ACQUIRE_CAUSES_WAKEUP
+                    or PowerManager.ON_AFTER_RELEASE,
+                "whale:agent2-observe",
+            )
+            lock.acquire(1500)
+            lock.release()
+            Thread.sleep(300)  // 等窗口就绪
+        } catch (t: Throwable) {
+            Log.w(TAG, "唤醒失败（继续尝试观察）: ${t.message}")
+        }
+    }
+
     /** 观察负载 JSON（element_id 观察内局部；fingerprint 跨观察稳定，§8）。 */
     internal fun buildObservationJson(
         obsId: String,
@@ -806,6 +836,9 @@ class Agent2Module(
         sb.append('{')
         sb.append("\"observation_id\":\"").append(obsId).append("\",")
         sb.append("\"captured_at\":").append(clock()).append(',')
+        // 前台应用（§5 device.status 语义进观察；模型需要知道自己在哪里）
+        val fg = runCatching { foregroundProbe.current() }.getOrNull()
+        sb.append("\"foreground_package\":").append(jsonStr(fg ?: "")).append(',')
         sb.append("\"screen\":{\"w\":").append(screenW).append(",\"h\":").append(screenH).append("},")
         if (shotRef != null) sb.append("\"screenshot_ref\":\"").append(shotRef).append("\",")
         sb.append("\"truncated\":").append(truncated).append(',')
