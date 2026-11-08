@@ -8,7 +8,7 @@
 
 [English](README_EN.md) · [架构](docs/ARCHITECTURE.md) · [AI 开发指南](docs/AI_DEVELOPMENT_GUIDE.md) · [当前进度](docs/STATUS.md)
 
-[Fork：V2 五轮更新说明](docs/v2-updates/README.md)
+[Fork：V2 逐轮更新说明](docs/v2-updates/README.md)
 
 </div>
 

@@ -8,7 +8,7 @@ Whale's Android body and senses: perception, notifications, VoIP, glasses intera
 
 [中文](README.md) · [Architecture](docs/ARCHITECTURE.md) · [AI developer guide](docs/AI_DEVELOPMENT_GUIDE.md) · [Status](docs/STATUS.md)
 
-[Fork: five V2 integration updates (Chinese)](docs/v2-updates/README.md)
+[Fork: V2 integration update log (Chinese)](docs/v2-updates/README.md)
 
 </div>
 
