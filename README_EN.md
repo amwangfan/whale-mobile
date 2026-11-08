@@ -8,6 +8,8 @@ Whale's Android body and senses: perception, notifications, VoIP, glasses intera
 
 [中文](README.md) · [Architecture](docs/ARCHITECTURE.md) · [AI developer guide](docs/AI_DEVELOPMENT_GUIDE.md) · [Status](docs/STATUS.md)
 
+[Fork: five V2 integration updates (Chinese)](docs/v2-updates/README.md)
+
 </div>
 
 whale-mobile is the Android node for [whale-core](https://github.com/amwangfan/whale-core). The phone collects signals, presents information, handles real-time interactions and executes actions. Core provides persona, memory, decisions and multi-device orchestration. They communicate through the versioned [contracts/v2](contracts/v2/) protocol.

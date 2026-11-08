@@ -47,7 +47,7 @@ def collect(root: Path) -> "dict[str, Path]":
             found[name] = path
     for pattern in SCOPE_GLOBS:
         for path in sorted(base.glob(pattern)):
-            found[str(path.relative_to(base))] = path
+            found[path.relative_to(base).as_posix()] = path
     return found
 
 
@@ -96,6 +96,12 @@ def main(argv: "list[str] | None" = None) -> int:
             "whale-core 镜像；不要两侧分别改。"
         )
         return 1
+    base = a_root / "contracts" / "v2"
+    missing = [name for name in SCOPE_FILES if not (base / name).is_file()]
+    missing += [pattern for pattern in SCOPE_GLOBS if not any(base.glob(pattern))]
+    if missing:
+        print(f"error: contracts/v2 不完整，缺少: {', '.join(missing)}", file=sys.stderr)
+        return 2
     print(f"ok: contracts/v2 范围内 {total} 个文件两侧一致")
     return 0
 
