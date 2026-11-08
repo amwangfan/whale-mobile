@@ -248,3 +248,11 @@ WM-08..WM-15：not_started
 - 旧 gateway 测试覆盖的握手/签名、心跳、事件去重、query/action 回执、幂等、撤销、未知 major、schema 错误和 device.confirm 已在 Core V2 `tests/test_embedded_wss.py` 中有对应测试；Mobile 不再保留针对已删除 V1 schema 的运行测试。
 - Debug 构建允许开发联调明文连接；release 默认仅允许 TLS。网络安全配置不再列出个人 tailnet IP。
 - 本次是仓库代码/文档整理，没有新增真机测试记录；11 月 7 日双机 V2 验收仍是最近一次设备实测证据。
+
+### Bilibili 刷视频真机验收（2026-11-08，nova daily / kimi-k3 / embedded WSS）
+- 状态：**device-tested**
+- 任务：打开哔哩哔哩 → 搜索「人工智能」→ 点进第一个视频播放 → 回报标题
+- 结果：**succeeded**，真实标题回执「【全100集】(允许白嫖) 2026最全最细的AI教程零基础入门到精通」
+- 链路：Core GUI Agent（kimi-k3，platform AgentScope，thinking 关）→ embedded WSS v2 → nova daily（无障碍执行，非 root）
+- 过程实录：stale_observation 三次触发自动重观察恢复、审批分类拦下系统弹窗按钮（无审批端口即拒）、前台识别 foreground_package 生效
+- 环境注记：nova GSI 有「设备内部出现问题」系统弹窗循环（GSI 自带缺陷，与 Whale 无关）；force-stop 会让无障碍服务标记 crashed，需重开一次
