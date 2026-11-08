@@ -1059,6 +1059,21 @@ class Agent2Module(
      * - agent:shot:shot-*.jpg（截图 base64）
      * 引用做严格格式校验（§10：拒绝路径形态/畸形引用，绝不泄露本地绝对路径）。
      */
+    fun readOutput(ref: String, offset: Long, maxBytes: Int): Map<String, Any?> {
+        val error = validateOutputRef(ref)
+        if (error != null) return mapOf("error" to error)
+        val file = when {
+            ref.startsWith("agent:out:") -> File(outDir, ref.removePrefix("agent:out:"))
+            ref.startsWith("agent:ui:") -> File(uiDir, ref.removePrefix("agent:ui:") + ".json")
+            ref.startsWith("agent:shot:") -> File(File(appContext.filesDir, "agent2/shots"),
+                ref.removePrefix("agent:shot:"))
+            else -> return mapOf("error" to "bad_ref")
+        }
+        if (!file.isFile) return mapOf("error" to "not_found")
+        return com.wangfanlab.whale.transport.v2.OutputPages.read(file,
+            com.wangfanlab.whale.transport.v2.OutputPages.Request(offset, maxBytes))
+    }
+
     fun readOutput(ref: String): Map<String, Any?> {
         val error = validateOutputRef(ref)
         if (error != null) return mapOf("error" to error)

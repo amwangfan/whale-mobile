@@ -5,6 +5,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import com.wangfanlab.whale.BuildConfig
+import com.wangfanlab.whale.transport.v2.OutputPages
 import com.wangfanlab.whale.CapabilityRegistry
 import com.wangfanlab.whale.modules.capture.CaptureModule
 import com.wangfanlab.whale.modules.capture.CapturePipeline
@@ -355,6 +356,7 @@ class NodeRuntimeV2 private constructor(
      *   [WssClientV2.sendRecordingState]，不产生编译依赖）。
      */
     private fun wireParallelHooks(cls: Class<*>, target: Any) {
+        OutputPages.reader(target)?.let { agent2ReadOutputPageHook = it }
         cls.methods.firstOrNull { it.name == "readOutput" && it.parameterTypes.size == 1 }
             ?.let { m ->
                 agent2ReadOutputHook = { ref ->
@@ -762,14 +764,23 @@ class NodeRuntimeV2 private constructor(
             }
             // agent2 已装配时优先走其输出仓库（§10 引用白名单）；否则回退 v1 agentModule
             val hook = agent2ReadOutputHook
-            val output = hook?.invoke(ref) ?: agentModule.readOutput(ref)
+            val output = try {
+                val page = OutputPages.request(filters)
+                agent2ReadOutputPageHook?.invoke(ref, page.offset, page.maxBytes)
+                    ?: OutputPages.legacy(hook?.invoke(ref) ?: agentModule.readOutput(ref), page)
+            } catch (e: IllegalArgumentException) {
+                mapOf("error" to "invalid_argument")
+            } catch (e: Exception) {
+                Log.w(TAG, "device.output.read failed", e)
+                mapOf("error" to "unavailable")
+            }
             val status = when (output["error"] as? String) {
                 null -> "ok"
                 "module_disabled", "scope_denied" -> "denied"
                 "unavailable" -> "unavailable"
                 else -> "error"
             }
-            client.sendSensorResult(requestId, status, listOf(output), false, "agent.local")
+            client.sendSensorResult(requestId, status, listOf(output), output["truncated"] == true, "agent.local")
             return true
         }
         // SM-03：数据源为 builtin 且操作受支持 → 原生直接回答（先于 Dart 委托）
@@ -902,6 +913,9 @@ class NodeRuntimeV2 private constructor(
     /** agent2 装配成功后的 device.output.read 数据源钩子（反射探测缓存）。 */
     @Volatile
     private var agent2ReadOutputHook: ((String) -> Map<String, Any?>)? = null
+
+    @Volatile
+    private var agent2ReadOutputPageHook: ((String, Long, Int) -> Map<String, Any?>)? = null
 
     /** recording 装配成功后的 recording.control 帧处理钩子（反射探测缓存）。 */
     @Volatile
