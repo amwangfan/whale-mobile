@@ -126,26 +126,15 @@ class RecordingController(
         if (!IdsV2.RUN_ID.matches(runId)) return null
         val op = payload["op"] as? String ?: return null
         if (op !in OPS) return null
-        @Suppress("UNCHECKED_CAST")
-        val optionsMap = payload["options"] as? Map<String, Any?>
-        val options = parseOptions(optionsMap) ?: return null
-        return ControlRequest(runId, op, options)
+        if (payload.containsKey("options") && payload["options"] !is Map<*, *>) return null
+        val options = RecordingOptionsPolicy.parse(payload["options"]) ?: return null
+        return ControlRequest(runId, op, Options(options.profile, options.maxDurationMs, options.excluded))
     }
 
     /** options 值域（schema：profile ≤32 字符；max_duration_ms 1000..3600000；exclude_packages ≤32 项、单项 ≤128 字符）。 */
     fun parseOptions(map: Map<String, Any?>?): Options? {
-        if (map == null) return Options(null, null, emptySet())
-        // profile：存在时必须是 ≤32 字符的字符串，否则整体判定非法
-        val rawProfile = map["profile"]
-        if (rawProfile != null && (rawProfile !is String || rawProfile.length > 32)) return null
-        val profile = rawProfile as? String
-        val maxDuration = payloadLongV2(map, "max_duration_ms")
-        if (maxDuration != null && (maxDuration < 1000 || maxDuration > 3_600_000)) return null
-        @Suppress("UNCHECKED_CAST")
-        val excludes = (map["exclude_packages"] as? List<*>)?.filterIsInstance<String>()
-            ?: emptyList()
-        if (excludes.size > 32 || excludes.any { it.isEmpty() || it.length > 128 }) return null
-        return Options(profile, maxDuration, excludes.toSet())
+        val options = RecordingOptionsPolicy.parse(map) ?: return null
+        return Options(options.profile, options.maxDurationMs, options.excluded)
     }
 
     // ------------------------------------------------------------- 控制入口
@@ -328,11 +317,13 @@ class RecordingController(
             val args = request.arguments
             val op = (args["op"] as? String)?.trim()
             val runId = (args["run_id"] as? String) ?: request.runId
+            val rawOptions = args["options"]
             @Suppress("UNCHECKED_CAST")
-            val optionsMap = args["options"] as? Map<String, Any?>
+            val optionsMap = rawOptions as? Map<String, Any?>
             val control = when {
                 op == null || op !in OPS -> null
                 runId == null || !IdsV2.RUN_ID.matches(runId) -> null
+                args.containsKey("options") && rawOptions !is Map<*, *> -> null
                 else -> parseOptions(optionsMap)?.let { ControlRequest(runId, op, it) }
             }
             if (control == null) {

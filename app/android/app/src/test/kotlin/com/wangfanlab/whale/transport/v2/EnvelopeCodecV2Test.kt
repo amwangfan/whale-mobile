@@ -10,6 +10,35 @@ import org.junit.Test
  * 黄金示例对照：contracts/v2/examples 目录下的示例 JSON。
  */
 class EnvelopeCodecV2Test {
+    @Test fun integerFieldsRejectFractionalAndOverflowValues() {
+        val raw = EnvelopeV2.uplink(MsgTypeV2.DEVICE_HEARTBEAT, 1, emptyMap(), ts = 1L).toJson()
+        for (number in listOf("1.9", "9223372036854775808", "1e1000")) {
+            assertThrowsV2 { EnvelopeCodecV2.decode(raw.replace("\"seq\":1", "\"seq\":$number")) }
+        }
+        assertEquals(1L, EnvelopeCodecV2.decode(raw.replace("\"seq\":1", "\"seq\":1.0")).seq)
+    }
+
+    @Test fun payloadLongNeverTruncatesOrClamps() {
+        assertEquals(Long.MAX_VALUE, payloadLongV2(mapOf("n" to Long.MAX_VALUE), "n"))
+        assertEquals(1000L, payloadLongV2(mapOf("n" to 1000.0), "n"))
+        for (number in listOf(1.9, Double.NaN, Double.POSITIVE_INFINITY, 9.223372036854776E18)) {
+            assertEquals(null, payloadLongV2(mapOf("n" to number), "n"))
+        }
+        assertEquals(null, payloadLongV2(mapOf("n" to "1"), "n"))
+    }
+
+    @Test fun nonstandardJsonAndNonfinitePayloadNumbersAreRejected() {
+        for (raw in listOf("{n:1}", "{'n':1}", "{\"n\":NaN}", "{\"n\":Infinity}", "{\"n\":1e1000}", "{}{}")) {
+            assertThrowsV2 { EnvelopeCodecV2.payloadFromJson(raw) }
+        }
+    }
+
+    @Test fun directEncodeAndDecodeApplyFrameBudget() {
+        val raw = EnvelopeV2.uplink(MsgTypeV2.DEVICE_HEARTBEAT, 1, emptyMap(), ts = 1L).toJson()
+        assertThrowsV2 { EnvelopeCodecV2.decode(raw + " ".repeat(MAX_FRAME_BYTES_V2)) }
+        assertThrowsV2 { EnvelopeV2.uplink(MsgTypeV2.DEVICE_HEARTBEAT, 1,
+            mapOf("text" to "鲸".repeat(MAX_FRAME_BYTES_V2 / 3)), ts = 1L).toJson() }
+    }
 
     private fun samplePayload(): Map<String, Any?> = linkedMapOf(
         "event_id" to "evt_01J9XK3EM8TQ2ZP0VN6W4RA8EE",

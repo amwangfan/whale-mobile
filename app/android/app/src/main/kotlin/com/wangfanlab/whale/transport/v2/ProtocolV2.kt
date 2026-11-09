@@ -1,9 +1,9 @@
 package com.wangfanlab.whale.transport.v2
 
-import com.google.gson.Gson
+import com.google.gson.GsonBuilder
+import com.google.gson.Strictness
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
-import com.google.gson.JsonParser
 import java.security.SecureRandom
 
 /**
@@ -328,7 +328,7 @@ data class EnvelopeV2(
 }
 
 object EnvelopeCodecV2 {
-    private val gson = Gson()
+    private val gson = GsonBuilder().setStrictness(Strictness.STRICT).create()
     private val V_PATTERN = Regex("^2\\.[0-9]+$")
     private val ANY_VERSION_PATTERN = Regex("^[0-9]+\\.[0-9]+$")
     private val INT_LITERAL = Regex("^-?[0-9]+$")
@@ -343,7 +343,7 @@ object EnvelopeCodecV2 {
         root["seq"] = env.seq
         root["dir"] = env.dir
         root["payload"] = env.payload
-        return gson.toJson(root)
+        return gson.toJson(root).also { checkFrameSize(it) }
     }
 
     /**
@@ -353,8 +353,9 @@ object EnvelopeCodecV2 {
      * - `id` 必须为 26 字符 ULID；未知 type 允许通过（前向兼容，§4 静默忽略）。
      */
     fun decode(json: String): EnvelopeV2 {
+        checkFrameSize(json)
         val root: JsonObject = try {
-            JsonParser.parseString(json).asJsonObject
+            gson.fromJson(json, JsonElement::class.java).asJsonObject
         } catch (e: Exception) {
             throw EnvelopeExceptionV2("frame is not a JSON object: ${e.message}")
         }
@@ -385,11 +386,11 @@ object EnvelopeCodecV2 {
     /** 解析 payload JSON 文本（离线队列重发用），数字保型：整数字面量 → Long，其余 → Double。 */
     fun payloadFromJson(json: String): Map<String, Any?> {
         val el = try {
-            JsonParser.parseString(json)
+            gson.fromJson(json, JsonElement::class.java)
         } catch (e: Exception) {
             throw EnvelopeExceptionV2("payload is not valid JSON: ${e.message}")
         }
-        if (!el.isJsonObject) throw EnvelopeExceptionV2("payload is not an object")
+        if (el == null || !el.isJsonObject) throw EnvelopeExceptionV2("payload is not an object")
         @Suppress("UNCHECKED_CAST")
         return elementToAny(el) as Map<String, Any?>
     }
@@ -424,10 +425,9 @@ object EnvelopeCodecV2 {
                 p.isBoolean -> p.asBoolean
                 p.isNumber -> {
                     val raw = p.asString
-                    if (INT_LITERAL.matches(raw)) {
-                        raw.toLongOrNull() ?: p.asDouble
-                    } else {
-                        p.asDouble
+                    val integer = if (INT_LITERAL.matches(raw)) raw.toLongOrNull() else null
+                    integer ?: p.asDouble.also {
+                        if (!it.isFinite()) throw EnvelopeExceptionV2("payload number out of finite range")
                     }
                 }
                 else -> p.asString
@@ -450,7 +450,9 @@ object EnvelopeCodecV2 {
             throw EnvelopeExceptionV2("$name is not a number")
         }
         return try {
-            el.asLong
+            el.asBigDecimal.longValueExact()
+        } catch (e: ArithmeticException) {
+            throw EnvelopeExceptionV2("$name is not an integer")
         } catch (e: NumberFormatException) {
             throw EnvelopeExceptionV2("$name is not an integer")
         }
@@ -458,4 +460,8 @@ object EnvelopeCodecV2 {
 }
 
 /** payload 中的整数字段（Gson Map 解码后为 Number，兼容 Long/Double）。 */
-fun payloadLongV2(p: Map<String, Any?>, key: String): Long? = (p[key] as? Number)?.toLong()
+fun payloadLongV2(p: Map<String, Any?>, key: String): Long? {
+    val number = p[key] as? Number ?: return null
+    return try { number.toString().toBigDecimalOrNull()?.longValueExact() }
+    catch (e: ArithmeticException) { null }
+}
