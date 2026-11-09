@@ -7,6 +7,33 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 class IdentityRegistrationTest {
+    private class Recording(var state: String = "idle")
+
+    @Test fun rebuildingDispatcherKeepsAnActiveRecordingResource() {
+        var created = 0
+        val first = retainAndBind<Recording>(null, { created++; Recording() }, { })
+        first.state = "recording"
+        var rebound: Recording? = null
+        val second = retainAndBind(first, { created++; Recording() }, { rebound = it })
+        assertSame(first, second)
+        assertSame(first, rebound)
+        assertEquals("recording", second.state)
+        assertEquals(1, created)
+    }
+
+    @Test fun firstBindingCreatesOneResourceAndInstallsItsHandler() {
+        var installed: Recording? = null
+        val resource = retainAndBind<Recording>(null, { Recording() }, { installed = it })
+        assertSame(resource, installed)
+    }
+
+    @Test fun bindingFailureDoesNotResetExistingRecordingState() {
+        val resource = Recording("paused")
+        try { retainAndBind(resource, { throw AssertionError("must reuse") }, {
+            throw IllegalStateException("dispatcher failed")
+        }); fail() } catch (expected: IllegalStateException) { }
+        assertEquals("paused", resource.state)
+    }
     @Test fun sameDispatcherIsIdempotentAndRebuiltDispatcherIsRegistered() {
         val registration = IdentityRegistration<Any>()
         val first = Any()

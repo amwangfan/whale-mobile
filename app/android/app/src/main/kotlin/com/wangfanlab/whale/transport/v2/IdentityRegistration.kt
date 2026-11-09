@@ -12,3 +12,10 @@ class IdentityRegistration<T : Any> {
 
     @Synchronized fun clear() { current = null }
 }
+
+/** Reattach handlers to a rebuilt dispatcher without restarting a stateful resource. */
+fun <R : Any> retainAndBind(existing: R?, create: () -> R, bind: (R) -> Unit): R {
+    val resource = existing ?: create()
+    bind(resource)
+    return resource
+}

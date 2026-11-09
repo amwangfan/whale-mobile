@@ -6,6 +6,7 @@ import com.wangfanlab.whale.CapabilityRegistry
 import com.wangfanlab.whale.modules.agent2.Agent2Module
 import com.wangfanlab.whale.modules.agent.AgentShell
 import com.wangfanlab.whale.transport.v2.ReceiptDispatcherV2
+import com.wangfanlab.whale.transport.v2.IdentityRegistration
 import java.io.File
 import java.util.concurrent.ConcurrentLinkedQueue
 
@@ -23,8 +24,7 @@ import java.util.concurrent.ConcurrentLinkedQueue
  */
 object RecordingRuntime {
 
-    @Volatile
-    private var registered = false
+    private val registration = IdentityRegistration<ReceiptDispatcherV2>()
 
     @Volatile
     private var controller: RecordingController? = null
@@ -42,27 +42,26 @@ object RecordingRuntime {
      */
     @Synchronized
     fun registerInto(dispatcher: ReceiptDispatcherV2, context: Context) {
-        if (registered) return
-        if (!CapabilityRegistry.isRootEdition()) {
-            Log.i(TAG, "daily 构建：不注册 device.screen.record（§5.2 门控）")
-            registered = true
-            return
+        registration.ensure(dispatcher) {
+            if (!CapabilityRegistry.isRootEdition()) {
+                Log.i(TAG, "daily 构建：不注册 device.screen.record（§5.2 门控）")
+                return@ensure
+            }
+            val app = context.applicationContext
+            val shell = Agent2Module.RootShell.fromAgentShell(
+                AgentShell(File(app.filesDir, "agent2/out")),
+            )
+            RecordingService.registerScreenRecordTo(
+                context = app,
+                dispatcher = dispatcher,
+                stateSender = RecordingController.StateSender { runId, state, fileRef, durationMs, errorCode ->
+                    dispatchState(RecordingController.StateReport(runId, state, fileRef, durationMs, errorCode))
+                },
+                shell = shell,
+            )
+            controller = RecordingService.controller
+            Log.i(TAG, "recording 模块已装配（root 变体）")
         }
-        val app = context.applicationContext
-        val shell = Agent2Module.RootShell.fromAgentShell(
-            AgentShell(File(app.filesDir, "agent2/out")),
-        )
-        RecordingService.registerScreenRecordTo(
-            context = app,
-            dispatcher = dispatcher,
-            stateSender = RecordingController.StateSender { runId, state, fileRef, durationMs, errorCode ->
-                dispatchState(RecordingController.StateReport(runId, state, fileRef, durationMs, errorCode))
-            },
-            shell = shell,
-        )
-        controller = RecordingService.controller
-        registered = true
-        Log.i(TAG, "recording 模块已装配（root 变体）")
     }
 
     /** 注入 recording.state 上行口（WssClientV2.sendRecordingState 的方法引用）。 */
@@ -117,7 +116,7 @@ object RecordingRuntime {
     @androidx.annotation.VisibleForTesting
     @Synchronized
     fun resetForTesting() {
-        registered = false
+        registration.clear()
         controller = null
         stateSender = null
         pendingStates.clear()
