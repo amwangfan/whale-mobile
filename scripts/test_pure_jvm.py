@@ -22,6 +22,7 @@ SOURCES = (
     "transport/v2/OutputPages.kt", "transport/v2/IdentityRegistration.kt", "modules/agent2/ObserveOptions.kt",
     "runtime/RecoveryPolicy.kt", "runtime/SensorQueryDispatch.kt", "runtime/UiEventHub.kt",
     "modules/recording/RecordingOptionsPolicy.kt",
+    "transport/v2/ConnectionGeneration.kt",
     "modules/glasses/GlassesLogic.kt", "modules/voip/VoipLogic.kt", "modules/notificationread/NotificationReadLogic.kt",
 )
 TESTS = (
@@ -29,6 +30,7 @@ TESTS = (
     "transport/v2/EnvelopeCodecV2Test.kt", "transport/v2/OutputPagesTest.kt", "transport/v2/IdentityRegistrationTest.kt",
     "modules/agent2/ObserveOptionsTest.kt", "runtime/RecoveryPolicyTest.kt", "runtime/NodeRuntimeLogicTest.kt",
     "modules/recording/RecordingOptionsPolicyTest.kt",
+    "transport/v2/ConnectionGenerationTest.kt",
     "modules/glasses/GlassesLogicTest.kt", "modules/voip/VoipLogicTest.kt", "modules/notificationread/NotificationReadLogicTest.kt",
 )
 

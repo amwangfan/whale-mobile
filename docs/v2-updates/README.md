@@ -2,7 +2,7 @@
 
 最近更新：2026-11-09。分支：`refactor/v2-integration`；上游基线：`646c4ec`。
 
-[查看第 01–17 轮更新说明](https://github.com/dreaminutes/whale-core/blob/refactor/v2-integration/docs/v2-updates/README.md)
+[查看第 01–19 轮更新说明](https://github.com/dreaminutes/whale-core/blob/refactor/v2-integration/docs/v2-updates/README.md)
 
 第 01–04 轮修复位于 Core：统一协议路径、严格加载 schema、补齐发布包中的协议、修复动作和查询预检。Mobile 的 V2 协议和 Android 实现保持现状，不重复搬入 Core 逻辑。
 
@@ -26,6 +26,10 @@
 最新验证：完整 Core Python **2627 passed / 18 skipped**；网页 **96/96**；Mobile 扩展纯 JVM **108/108**、协议 **72/72**、Python工具 **4 passed / 1 skipped**；**68 个契约文件一致**，新 wheel 源码外安装通过。Python媒体宿主测试因缺javac跳过，未算作通过。
 
 新增[纯 JVM 验证入口与范围](../TESTING-PURE-JVM.md)，可在显式提供本地依赖后复现协议、恢复、通知、通话、眼镜及新功能的测试，不会下载工具或构建APK。
+
+第18–19轮追加：严格JSON与精确整数解析、录制选项纯策略、UTF-8帧大小边界；WebSocket回调按建连代次处理，旧连接的迟到消息/失败/关闭不影响新连接。主动断开与销毁同步清理分发器连接状态，丢弃执行器关闭后的网络回调。纯JVM扩展至 **120项通过 / 15个测试类**；实际Android客户端仍需组件构建与真机验证。
+
+配套Core第19轮最终完整Python **2659 passed / 18 skipped**；Mobile协议仍为 **72/72**、Python工具 **4 passed / 1 skipped**；契约镜像 **68个文件一致**。完整验证边界见上方Core索引。
 
 端侧分页逻辑已实现并验证，仍缺 Flutter/Android SDK/JDK17 环境下的完整 APK 编译与真机验收；JVM 测试不代表 Android 组件已构建。原有单参数 readOutput 与未协商分页的输出形状保留。
 

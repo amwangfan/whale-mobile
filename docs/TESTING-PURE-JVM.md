@@ -10,6 +10,6 @@ python scripts/test_pure_jvm.py --tools "<Kotlin和JUnit目录>" --gson "<gson-2
 
 本机验证使用 Kotlin compiler-embeddable 1.9.24 及其完整依赖、JUnit 4.13.2 / Hamcrest 1.3、Gson 2.11.0。Java 通过 `--java` 指定，默认从 PATH 查找；纯逻辑编译目标为 JVM 1.8。
 
-输出包括 `compile.log`、`tests.log` 和 `report.json`。2026-11-09 的扩展范围为 13 个测试类，108 项通过。范围由脚本中的 SOURCES/TESTS 显式列出，未静默过滤失败用例。
+输出包括 `compile.log`、`tests.log` 和 `report.json`。2026-11-09 第19轮范围为 15 个测试类，120 项通过，新增严格JSON/整数边界、录制选项与连接代次策略。范围由脚本中的 SOURCES/TESTS 显式列出，未静默过滤失败用例；WssClientV2等依赖Android的实际组件不在此入口的编译范围。
 
 这不能替代 Flutter/Gradle、Robolectric、APK 编译或真机测试。Android Service、Context、SQLite、权限、MediaProjection 和设备硬件仍需在项目要求的 JDK17/Flutter/Android SDK 环境中验证。

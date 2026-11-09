@@ -18,6 +18,7 @@ import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import java.io.File
 import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
@@ -227,6 +228,7 @@ class WssClientV2(
     @Volatile
     private var state = State.DISCONNECTED
     private var ws: WebSocket? = null
+    private val connectionGeneration = ConnectionGeneration()
     private var url: String? = null
     private var helloConfig: HelloConfig? = null
     private var voluntaryClose = false
@@ -283,15 +285,19 @@ class WssClientV2(
     }
 
     fun disconnect() {
-        executor.execute {
-            voluntaryClose = true
-            cancelReconnect()
-            stopHeartbeat()
-            cancelAuthTimeout()
-            ws?.close(1000, "client disconnect")
-            ws = null
-            transition(State.DISCONNECTED)
-        }
+        executor.execute { disconnectLocked() }
+    }
+
+    private fun disconnectLocked() {
+        voluntaryClose = true
+        connectionGeneration.invalidate()
+        cancelReconnect()
+        stopHeartbeat()
+        cancelAuthTimeout()
+        ws?.close(1000, "client disconnect")
+        ws = null
+        dispatcher.onConnectionLost()
+        transition(State.DISCONNECTED)
     }
 
     /**
@@ -318,7 +324,10 @@ class WssClientV2(
      * （ws?.cancel 路径见 disconnect 对端超时兜底），最多阻塞调用线程 2s。
      */
     fun destroy() {
-        disconnect()
+        executor.execute {
+            destroyed = true
+            disconnectLocked()
+        }
         executor.shutdown()
         try {
             if (!executor.awaitTermination(2, TimeUnit.SECONDS)) {
@@ -507,16 +516,24 @@ class WssClientV2(
 
     // ------------------------------------------------------------- WS 回调（OkHttp 线程 → executor）
 
-    private val wsListener = object : WebSocketListener() {
+    private fun enqueueSocketEvent(token: ConnectionGeneration.Token, block: () -> Unit) {
+        try {
+            executor.execute { connectionGeneration.runIfCurrent(token, block) }
+        } catch (_: RejectedExecutionException) {
+            // OkHttp may finish closing after destroy has shut down our executor.
+        }
+    }
+
+    private fun socketListener(token: ConnectionGeneration.Token) = object : WebSocketListener() {
         override fun onOpen(webSocket: WebSocket, response: Response) {
-            executor.execute {
+            enqueueSocketEvent(token) {
                 lastInboundMonoMs = SystemClock.elapsedRealtime()
                 transition(State.AWAITING_AUTH)
             }
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
-            executor.execute { handleTextLocked(text) }
+            enqueueSocketEvent(token) { handleTextLocked(text) }
         }
 
         override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
@@ -524,11 +541,11 @@ class WssClientV2(
         }
 
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-            executor.execute { handleTransportLostLocked("closed code=$code reason=$reason") }
+            enqueueSocketEvent(token) { handleTransportLostLocked("closed code=$code reason=$reason") }
         }
 
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-            executor.execute {
+            enqueueSocketEvent(token) {
                 handleTransportLostLocked("failure: ${t.javaClass.simpleName}: ${t.message}")
             }
         }
@@ -538,6 +555,7 @@ class WssClientV2(
 
     private fun openSocket() {
         val target = url ?: return
+        val token = connectionGeneration.begin()
         ws?.cancel()
         ws = null
         stopHeartbeat()
@@ -547,11 +565,12 @@ class WssClientV2(
         sessionId = null
         transition(if (hadOnlineThisSession) State.DEGRADED else State.CONNECTING)
         val request = Request.Builder().url(target).build()
-        ws = okHttpClient.newWebSocket(request, wsListener)
+        ws = okHttpClient.newWebSocket(request, socketListener(token))
     }
 
     private fun handleTransportLostLocked(why: String) {
         if (destroyed) return
+        connectionGeneration.invalidate()
         lastDisconnectReason = why
         stopHeartbeat()
         cancelAuthTimeout()
