@@ -464,7 +464,7 @@ class ReceiptDispatcherV2(
             return
         }
         val reply: (ActionOutcome) -> Unit = { outcome ->
-            scheduler.execute { settleInFlight(idemKey, outcome) }
+            scheduler.executeIfOpen { settleInFlight(idemKey, outcome) }
         }
         try {
             handler.execute(request, reply)
@@ -538,7 +538,7 @@ class ReceiptDispatcherV2(
         providerRef: String? = null,
     ) {
         require(status.terminal) { "completeFromBusiness 只接受终态: $status" }
-        scheduler.execute {
+        scheduler.executeIfOpen {
             val record = store.getByActionId(actionId)
             if (record == null) {
                 Log.w(TAG, "业务层终态查无幂等记录 action_id=$actionId，尽力回执")
@@ -551,7 +551,7 @@ class ReceiptDispatcherV2(
                     ).resultPayload(),
                     providerRef = providerRef,
                 )
-                return@execute
+                return@executeIfOpen
             }
             inFlight.remove(record.idemKey)?.timeoutTask?.cancel(false)
             settle(
@@ -566,9 +566,9 @@ class ReceiptDispatcherV2(
 
     /** 取消在飞动作（device.stop / 紧急停止预留入口）：终结为 cancelled。 */
     fun cancel(idemKey: String) {
-        scheduler.execute {
-            val record = store.get(idemKey) ?: return@execute
-            if (record.terminalState != null) return@execute
+        scheduler.executeIfOpen {
+            val record = store.get(idemKey) ?: return@executeIfOpen
+            if (record.terminalState != null) return@executeIfOpen
             inFlight.remove(idemKey)?.timeoutTask?.cancel(false)
             settle(record, ActionOutcome(status = ReceiptStatus.CANCELLED, errorCode = ErrorCodeV2.CANCELLED))
         }
@@ -582,7 +582,7 @@ class ReceiptDispatcherV2(
 
     /** 撤销设备时调用（§16：幂等表清空）。 */
     fun onDeviceRevoked() {
-        scheduler.execute {
+        scheduler.executeIfOpen {
             inFlight.clear()
             store.clear()
         }

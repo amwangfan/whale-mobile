@@ -737,6 +737,11 @@ class Agent2Module(
     ) {
         val once = OnceReply(reply)
         executor.execute {
+            val options = try { ObserveOptions.parse(request.arguments) }
+            catch (e: IllegalArgumentException) {
+                once.reply(fail(ErrorCodeV2.INVALID_MESSAGE, "观察参数无效"))
+                return@execute
+            }
             if (estopActive()) {
                 once.reply(fail(ErrorCodeV2.ESTOP_ACTIVE, "紧急停止激活，拒绝观察"))
                 return@execute
@@ -745,8 +750,8 @@ class Agent2Module(
             // ACQUIRE_CAUSES_WAKEUP），观察完成后由 ON_AFTER_RELEASE 自动还原。
             // 用户设定：允许灭屏、不锁屏；观察即真实使用，故唤醒是忠实执行。
             wakeScreenForObserve()
-            val xml = uiTreeSource.dump()
-            if (xml == null) {
+            val xml = if (options.uiTree) uiTreeSource.dump() else null
+            if (options.uiTree && xml == null) {
                 once.reply(
                     fail(
                         ErrorCodeV2.UNAVAILABLE,
@@ -756,17 +761,17 @@ class Agent2Module(
                 return@execute
             }
             val all = try {
-                Agent2Logic.parseUiTree(xml)
+                if (options.uiTree) Agent2Logic.parseUiTree(xml!!) else emptyList()
             } catch (t: Throwable) {
                 once.reply(fail(ErrorCodeV2.INTERNAL, "UI 树解析失败: ${t.message}"))
                 return@execute
             }
-            val truncated = all.size > Agent2Logic.MAX_OBSERVE_ELEMENTS
-            val elements = all.take(Agent2Logic.MAX_OBSERVE_ELEMENTS)
+            val truncated = all.size > options.maxElements
+            val elements = all.take(options.maxElements)
             val obsId = IdsV2.newObservationId()
             // 截图（失败不拖垮观察：摘要注明，verification 仍 skipped）
             val shotFile = try {
-                screenshotSource.takeShot()
+                if (options.screenshot) screenshotSource.takeShot() else null
             } catch (t: Throwable) {
                 Log.w(TAG, "截图失败（观察继续）: ${t.message}")
                 null
@@ -1059,6 +1064,21 @@ class Agent2Module(
      * - agent:shot:shot-*.jpg（截图 base64）
      * 引用做严格格式校验（§10：拒绝路径形态/畸形引用，绝不泄露本地绝对路径）。
      */
+    fun readOutput(ref: String, offset: Long, maxBytes: Int): Map<String, Any?> {
+        val error = validateOutputRef(ref)
+        if (error != null) return mapOf("error" to error)
+        val file = when {
+            ref.startsWith("agent:out:") -> File(outDir, ref.removePrefix("agent:out:"))
+            ref.startsWith("agent:ui:") -> File(uiDir, ref.removePrefix("agent:ui:") + ".json")
+            ref.startsWith("agent:shot:") -> File(File(appContext.filesDir, "agent2/shots"),
+                ref.removePrefix("agent:shot:"))
+            else -> return mapOf("error" to "bad_ref")
+        }
+        if (!file.isFile) return mapOf("error" to "not_found")
+        return com.wangfanlab.whale.transport.v2.OutputPages.read(file,
+            com.wangfanlab.whale.transport.v2.OutputPages.Request(offset, maxBytes))
+    }
+
     fun readOutput(ref: String): Map<String, Any?> {
         val error = validateOutputRef(ref)
         if (error != null) return mapOf("error" to error)

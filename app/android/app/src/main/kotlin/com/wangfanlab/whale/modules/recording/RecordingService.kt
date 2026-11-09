@@ -477,60 +477,63 @@ class RecordingService : Service() {
          * @param stateSender recording.state 上行口（= WssClientV2.sendRecordingState）
          * @param consentGate 授权门（无 consent 时直接 failed/permission_missing）
          */
+        @Synchronized
         fun registerScreenRecordTo(
             context: Context,
             dispatcher: com.wangfanlab.whale.transport.v2.ReceiptDispatcherV2,
             stateSender: RecordingController.StateSender,
             shell: Agent2Module.RootShell,
         ) {
-            val app = context.applicationContext
-            foregroundProbeProvider = { Agent2Module.ForegroundProbe.rootShell(shell) }
-            val driver = object : RecordingController.RecordingDriver {
-                // 驱动委托到服务进程内实例；服务未运行时start会拉起服务
-                override fun start(runId: String, options: RecordingController.Options): String? {
-                    if (!RecordingConsent.hasConsent()) return ErrorCodeV2.PERMISSION_MISSING
-                    val svc = activeService
-                        ?: run {
-                            // 服务未运行：显式拉起（FGS 启动限制下可能失败，由服务侧诚实回报）
-                            try {
-                                app.startForegroundService(Intent(app, RecordingService::class.java))
-                            } catch (t: Throwable) {
-                                return ErrorCodeV2.BACKGROUND_RESTRICTED
+            controller = com.wangfanlab.whale.transport.v2.retainAndBind(controller, create = {
+                val app = context.applicationContext
+                foregroundProbeProvider = { Agent2Module.ForegroundProbe.rootShell(shell) }
+                val driver = object : RecordingController.RecordingDriver {
+                    // 驱动委托到服务进程内实例；服务未运行时start会拉起服务
+                    override fun start(runId: String, options: RecordingController.Options): String? {
+                        if (!RecordingConsent.hasConsent()) return ErrorCodeV2.PERMISSION_MISSING
+                        val svc = activeService
+                            ?: run {
+                                // 服务未运行：显式拉起（FGS 启动限制下可能失败，由服务侧诚实回报）
+                                try {
+                                    app.startForegroundService(Intent(app, RecordingService::class.java))
+                                } catch (t: Throwable) {
+                                    return ErrorCodeV2.BACKGROUND_RESTRICTED
+                                }
+                                // 等服务 onCreate 窗口（轮询 ≤2s）
+                                val deadline = System.currentTimeMillis() + 2_000
+                                while (activeService == null && System.currentTimeMillis() < deadline) {
+                                    Thread.sleep(50)
+                                }
+                                activeService ?: return ErrorCodeV2.UNAVAILABLE
                             }
-                            // 等服务 onCreate 窗口（轮询 ≤2s）
-                            val deadline = System.currentTimeMillis() + 2_000
-                            while (activeService == null && System.currentTimeMillis() < deadline) {
-                                Thread.sleep(50)
-                            }
-                            activeService ?: return ErrorCodeV2.UNAVAILABLE
-                        }
-                    return svc.ProjectionDriver().start(runId, options)
+                        return svc.ProjectionDriver().start(runId, options)
+                    }
+
+                    override fun pause(): String? =
+                        activeService?.ProjectionDriver()?.pause() ?: ErrorCodeV2.UNAVAILABLE
+
+                    override fun resume(): String? =
+                        activeService?.ProjectionDriver()?.resume() ?: ErrorCodeV2.UNAVAILABLE
+
+                    override fun stop(): String? =
+                        activeService?.ProjectionDriver()?.stop() ?: ErrorCodeV2.UNAVAILABLE
+
+                    override fun setMasked(masked: Boolean) {
+                        activeService?.ProjectionDriver()?.setMasked(masked)
+                    }
                 }
-
-                override fun pause(): String? =
-                    activeService?.ProjectionDriver()?.pause() ?: ErrorCodeV2.UNAVAILABLE
-
-                override fun resume(): String? =
-                    activeService?.ProjectionDriver()?.resume() ?: ErrorCodeV2.UNAVAILABLE
-
-                override fun stop(): String? =
-                    activeService?.ProjectionDriver()?.stop() ?: ErrorCodeV2.UNAVAILABLE
-
-                override fun setMasked(masked: Boolean) {
-                    activeService?.ProjectionDriver()?.setMasked(masked)
-                }
-            }
-            controller = RecordingController(
-                driver = driver,
-                stateSender = stateSender,
-                // 遮罩排除集合：control options ∪ capture 模块用户排除包名
-                localExcludedProvider = { ExcludedPackagesStore(app).get() },
-            ).also { c ->
+                RecordingController(
+                    driver = driver,
+                    stateSender = stateSender,
+                    // 遮罩排除集合：control options ∪ capture 模块用户排除包名
+                    localExcludedProvider = { ExcludedPackagesStore(app).get() },
+                )
+            }, bind = { c ->
                 dispatcher.registerHandler(
                     com.wangfanlab.whale.transport.v2.CapabilitiesV2.DEVICE_SCREEN_RECORD,
                     c.asActionHandler(),
                 )
-            }
+            })
             Log.i(TAG, "device.screen.record 已注册（MediaProjection 内置录制）")
         }
 
