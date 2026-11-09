@@ -2,7 +2,7 @@
 
 最近更新：2026-11-09。分支：`refactor/v2-integration`；上游基线：`646c4ec`。
 
-[查看第 01–19 轮更新说明](https://github.com/dreaminutes/whale-core/blob/refactor/v2-integration/docs/v2-updates/README.md)
+[查看第 01–20 轮更新说明](https://github.com/dreaminutes/whale-core/blob/refactor/v2-integration/docs/v2-updates/README.md)
 
 第 01–04 轮修复位于 Core：统一协议路径、严格加载 schema、补齐发布包中的协议、修复动作和查询预检。Mobile 的 V2 协议和 Android 实现保持现状，不重复搬入 Core 逻辑。
 
@@ -34,3 +34,7 @@
 端侧分页逻辑已实现并验证，仍缺 Flutter/Android SDK/JDK17 环境下的完整 APK 编译与真机验收；JVM 测试不代表 Android 组件已构建。原有单参数 readOutput 与未协商分页的输出形状保留。
 
 保留旧工作分支；本轮未修改 snow 的主分支，也未重开旧 PR #48。
+
+第20轮最终收尾：公开异步调用与网络回调共用SerialLifecycle，关闭后忽略新任务，已接收的任务按序完成后清理并关闭调度器；重复/并发销毁仅清理一次，工作线程发起关闭不等待自己。原生执行器和业务回执的迟到完成安全检查调度器关闭状态。Core同步修复旧心跳快照误报掉线与旧连接误发上线事件。继续更新既有PR #53 / Core #81，最终验证见Core索引；本轮后停止。
+
+最终第20轮：Core完整Python **2665 passed /18 skipped**，Mobile纯JVM **125项 /16个测试类通过**，协议72/72、Python工具4 passed /1 skipped、68个契约文件一致。关闭等待最多2秒，超时强制中断；未验证Android组件/完整APK/真机。

@@ -18,7 +18,6 @@ import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import java.io.File
 import java.util.concurrent.Executors
-import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
@@ -209,6 +208,7 @@ class WssClientV2(
 
     private val executor: ScheduledExecutorService =
         Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "whale-wss-v2") }
+    private val lifecycle = SerialLifecycle(executor)
     private val backoff = backoffFactory()
 
     /** action 分发器（幂等/超时/执行器注册表）；与客户端共用单线程 executor。 */
@@ -267,7 +267,7 @@ class WssClientV2(
     // ------------------------------------------------------------- 公共 API
 
     fun connect(url: String, config: HelloConfig) {
-        executor.execute {
+        lifecycle.execute {
             if (destroyed) return@execute
             // 幂等连接：相同地址且已在线/建连中时不重开（防恢复路径与 UI 竞态拉锯）。
             if (this.url == url && state != State.DISCONNECTED) {
@@ -285,7 +285,7 @@ class WssClientV2(
     }
 
     fun disconnect() {
-        executor.execute { disconnectLocked() }
+        lifecycle.execute { disconnectLocked() }
     }
 
     private fun disconnectLocked() {
@@ -305,7 +305,7 @@ class WssClientV2(
      * 仅在非主动断开、非销毁、当前不在线时生效。
      */
     fun reconnectNow() {
-        executor.execute {
+        lifecycle.execute {
             if (destroyed || voluntaryClose) return@execute
             if (state == State.ONLINE || state == State.AWAITING_AUTH) return@execute
             if (url == null) return@execute
@@ -324,18 +324,9 @@ class WssClientV2(
      * （ws?.cancel 路径见 disconnect 对端超时兜底），最多阻塞调用线程 2s。
      */
     fun destroy() {
-        executor.execute {
+        lifecycle.close {
             destroyed = true
             disconnectLocked()
-        }
-        executor.shutdown()
-        try {
-            if (!executor.awaitTermination(2, TimeUnit.SECONDS)) {
-                executor.shutdownNow()
-            }
-        } catch (e: InterruptedException) {
-            executor.shutdownNow()
-            Thread.currentThread().interrupt()
         }
     }
 
@@ -360,7 +351,7 @@ class WssClientV2(
             kind, occurredAt, source, summary, privacyClass,
             evidenceRef, taskId, runId, extras, dropOnPause = dropOnPause, eventId = eventId,
         )
-        executor.execute {
+        lifecycle.execute {
             if (state == State.ONLINE) flushOutboxLocked()
         }
         return id
@@ -393,7 +384,7 @@ class WssClientV2(
         truncated: Boolean,
         source: String,
     ) {
-        executor.execute {
+        lifecycle.execute {
             val payload = LinkedHashMap<String, Any?>()
             payload["request_id"] = requestId
             payload["status"] = status
@@ -412,7 +403,7 @@ class WssClientV2(
         receivedAt: Long = clock(),
     ) {
         require(status in NOTIFICATION_RECEIPT_STATUSES) { "非法通知回执状态: $status" }
-        executor.execute {
+        lifecycle.execute {
             val payload = LinkedHashMap<String, Any?>()
             payload["event_id"] = eventId
             payload["notification_id"] = notificationId
@@ -425,7 +416,7 @@ class WssClientV2(
 
     /** 上行 notification.action（§13.3；按钮操作回传，审批裁决仍在 core）。 */
     fun sendNotificationAction(eventId: String, notificationId: String, actionId: String) {
-        executor.execute {
+        lifecycle.execute {
             val payload = LinkedHashMap<String, Any?>()
             payload["event_id"] = eventId
             payload["notification_id"] = notificationId
@@ -438,7 +429,7 @@ class WssClientV2(
 
     /** 上行 notification.sync（§13.3；重连后同步位置上报，last_event_id 可空）。 */
     fun sendNotificationSync() {
-        executor.execute {
+        lifecycle.execute {
             if (state != State.ONLINE) return@execute
             val payload = LinkedHashMap<String, Any?>()
             payload["device_id"] = identity.getDeviceId()
@@ -450,7 +441,7 @@ class WssClientV2(
 
     /** 上行 device.confirm.response（§14；approved=true 时以身份私钥签名 challenge_id）。 */
     fun sendConfirmResponse(challengeId: String, approved: Boolean, reason: String? = null) {
-        executor.execute {
+        lifecycle.execute {
             val payload = LinkedHashMap<String, Any?>()
             payload["challenge_id"] = challengeId
             payload["approved"] = approved
@@ -472,7 +463,7 @@ class WssClientV2(
         durationMs: Long? = null,
         errorCode: String? = null,
     ) {
-        executor.execute {
+        lifecycle.execute {
             val payload = LinkedHashMap<String, Any?>()
             payload["run_id"] = runId
             payload["state"] = state
@@ -485,12 +476,12 @@ class WssClientV2(
 
     /** 上行 run.trace.event（§12.1；payload 由轨迹记录器组装）。 */
     fun sendRunTraceEvent(payload: Map<String, Any?>) {
-        executor.execute { sendEnvelopeLocked(MsgTypeV2.RUN_TRACE_EVENT, payload) }
+        lifecycle.execute { sendEnvelopeLocked(MsgTypeV2.RUN_TRACE_EVENT, payload) }
     }
 
     /** 上行协议级 error（§6/§15）。 */
     fun sendError(refId: String, code: String, message: String) {
-        executor.execute { sendErrorLocked(refId, code, message) }
+        lifecycle.execute { sendErrorLocked(refId, code, message) }
     }
 
     /** 进入 paused 时调用：清除 outbox 中标记 drop_on_pause 的未送达事件（§16），返回清除数。 */
@@ -517,11 +508,7 @@ class WssClientV2(
     // ------------------------------------------------------------- WS 回调（OkHttp 线程 → executor）
 
     private fun enqueueSocketEvent(token: ConnectionGeneration.Token, block: () -> Unit) {
-        try {
-            executor.execute { connectionGeneration.runIfCurrent(token, block) }
-        } catch (_: RejectedExecutionException) {
-            // OkHttp may finish closing after destroy has shut down our executor.
-        }
+        lifecycle.execute { connectionGeneration.runIfCurrent(token, block) }
     }
 
     private fun socketListener(token: ConnectionGeneration.Token) = object : WebSocketListener() {
