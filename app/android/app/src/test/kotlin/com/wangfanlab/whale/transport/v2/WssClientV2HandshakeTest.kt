@@ -252,7 +252,7 @@ class WssClientV2HandshakeTest {
     // ---- 通知子协议（§13） ----
 
     @Test
-    fun `notification event auto receipts received and dedups by event id`() {
+    fun `notification event auto receipts received and redispatches duplicate for terminal recovery`() {
         val eventId = IdsV2.newEventId()
         val notifId = IdsV2.newNotificationId()
         val payload = mapOf<String, Any?>(
@@ -271,11 +271,19 @@ class WssClientV2HandshakeTest {
         val first = listenerEvents.poll()
         assertNotNull(first)
         assertEquals("notification_event", first!!["kind"])
-        // 同 event_id 重发（多通道送达）：重发回执但不再分发
+        // 同 event_id 重发（多通道送达/core 补传）：重发 received（无业务处理监听器
+        // 的兼容语义），且仍分发给监听器——业务层依持久 Inbox 去重不重复展示，
+        // 并按落库状态重发 displayed/failed 等终态回执（§13 收敛）。
         feed(inbound(MsgTypeV2.NOTIFICATION_EVENT, payload, seq = 2L))
         val dupReceipt = takeFrame()
+        assertEquals(MsgTypeV2.NOTIFICATION_RECEIPT, dupReceipt.type)
         assertEquals("received", dupReceipt.payload["status"])
+        assertEquals(eventId, dupReceipt.payload["event_id"])
         drainMain()
-        assertNull(listenerEvents.poll())
+        val dup = listenerEvents.poll()
+        assertNotNull("重复事件必须仍分发给监听器（业务层终态恢复入口）", dup)
+        assertEquals("notification_event", dup!!["kind"])
+        assertEquals(eventId, dup["event_id"])
+        assertNull("同一次重复不得多次分发", listenerEvents.poll())
     }
 }

@@ -289,6 +289,82 @@ class NodeRuntimeV2Test {
         )
     }
 
+    /**
+     * 重复 notification.event（同会话内传输层 LRU 命中，模拟终态回执丢失后 core
+     * 补传/多通道重复送达）：传输层重发 received（非业务回调兼容），且业务层
+     * NotificationEventHandler 依持久 Inbox 去重不重复展示，并按落库当前状态
+     * 重发 displayed/failed 等终态回执，让 core 收敛（§13.2/§13.3）。
+     */
+    @Test
+    fun `duplicate notification event replays terminal receipt from persistent inbox without re-display`() {
+        val eventId = IdsV2.newEventId()
+        val notificationId = IdsV2.newNotificationId()
+        val payload = mapOf<String, Any?>(
+            "event_id" to eventId, "notification_id" to notificationId,
+            "device_id" to runtime.identity.getDeviceId(),
+            "category" to "chat.message",
+            "title" to "你好", "body" to "正文",
+            "priority" to "normal",
+            "created_at" to 1794052800000L, "expires_at" to 4102444800000L,
+        )
+        feed(MsgTypeV2.NOTIFICATION_EVENT, payload, seq = 20L)
+        val autoReceipt = takeFrame()
+        assertEquals(MsgTypeV2.NOTIFICATION_RECEIPT, autoReceipt.type)
+        assertEquals("received", autoReceipt.payload["status"])
+        // 等业务层落库越过 received（诚实回执链跑到 displayed/failed 终态）
+        val deadline = System.currentTimeMillis() + 5000
+        var record: NotificationInbox.Record? = null
+        while (System.currentTimeMillis() < deadline) {
+            drainMain()
+            record = runtime.inbox.findByEventId(eventId)
+            if (record != null && record.status != NotificationInbox.Status.RECEIVED) break
+            Thread.sleep(50)
+        }
+        assertNotNull("首次事件应落入 Inbox", record)
+        val terminal = record!!.status.wire
+        assertTrue(
+            "首次处理应达终态 displayed/failed（诚实回执），实际=$terminal",
+            terminal == "displayed" || terminal == "failed",
+        )
+        // 排空首次处理上行的终态回执帧
+        assertTrue(
+            "首次处理后应上行 $terminal 回执",
+            awaitReceipt(eventId, terminal),
+        )
+
+        // core 补传/多通道重复送达（同 event_id、同会话 → 传输层 LRU 命中）
+        feed(MsgTypeV2.NOTIFICATION_EVENT, payload, seq = 21L)
+        val dupAuto = takeFrame()
+        assertEquals(MsgTypeV2.NOTIFICATION_RECEIPT, dupAuto.type)
+        assertEquals("received", dupAuto.payload["status"]) // 非业务回调兼容 received
+        // 业务层依持久 Inbox 去重：不重复展示，按落库终态重发回执让 core 收敛
+        assertTrue(
+            "重复事件应由业务层重发终态回执（$terminal），而非停在 received",
+            awaitReceipt(eventId, terminal),
+        )
+        // 不重复显示：不再提交系统的硬断言在 handler 层（NotificationEventHandlerTest
+        // 以 fake facade 断言 posts 总数；集成层真实 NotificationManager 对同 id
+        // 重 post 是覆盖语义，活跃计数无法区分）。此处断言 Inbox 仍为单条同终态
+        // 记录——重复路径未触发任何状态迁移/渲染。
+        assertEquals(terminal, runtime.inbox.findByEventId(eventId)!!.status.wire)
+    }
+
+    /** 轮询上行帧直至收到指定 event_id+status 的 notification.receipt（超时 5s）。 */
+    private fun awaitReceipt(eventId: String, status: String): Boolean {
+        val deadline = System.currentTimeMillis() + 5000
+        while (System.currentTimeMillis() < deadline) {
+            drainMain()
+            val f = frames.poll(200, TimeUnit.MILLISECONDS) ?: continue
+            if (f.type == MsgTypeV2.NOTIFICATION_RECEIPT &&
+                f.payload["event_id"] == eventId &&
+                f.payload["status"] == status
+            ) {
+                return true
+            }
+        }
+        return false
+    }
+
     // ------------------------------------------------------------- sensor.query
 
     @Test
