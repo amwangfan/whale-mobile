@@ -70,7 +70,11 @@ class WssClientV2(
          */
         fun onSensorQuery(payload: Map<String, Any?>): Boolean = false
 
-        /** 下行 notification.event（§13.1；已按 event_id 去重、已自动回 received 回执）。 */
+        /**
+         * 下行 notification.event（§13.1；已自动回 received 回执）。同 event_id 的
+         * 重复事件也会派发（会话内 LRU 命中）：实现方应依持久去重（如 notification2
+         * Inbox）保证不重复展示，并可按落库状态重发终态回执；默认实现忽略。
+         */
         fun onNotificationEvent(payload: Map<String, Any?>) {}
 
         /** 下行 notification.revoke（§13.3）。 */
@@ -747,8 +751,11 @@ class WssClientV2(
     }
 
     /**
-     * notification.event（§13.1）：按 event_id 去重（多通道送达只展示一次）；
-     * 首次到达自动回 received 回执（displayed/opened 等后续状态由业务层上报）。
+     * notification.event（§13.1）：会话内按 event_id 去重（多通道送达只展示一次）；
+     * 到达自动回 received 回执（displayed/opened 等后续状态由业务层上报）。
+     * 重复事件同样分发给监听器：业务层（NotificationEventHandler）依持久 Inbox
+     * 去重不会重复展示，并按落库当前状态重发终态回执（displayed/failed 等），
+     * 修复终态回执丢失后 core 补传无法收敛的问题。
      */
     private fun onNotificationEventLocked(env: EnvelopeV2) {
         val p = env.payload
@@ -761,9 +768,13 @@ class WssClientV2(
             return
         }
         if (recentNotifEventIds.put(eventId, true) != null) {
-            // 重复事件：重发 received 让 core 停发，不再分发展示（§13）。
-            Log.d(TAG, "重复 notification.event（event_id=$eventId），重发 received 回执")
+            // 重复事件（§13 多通道送达/core 补传）：重发 received 让 core 停发
+            // （监听器无业务处理时的兼容语义）；仍分发给业务层——
+            // NotificationEventHandler 依持久 Inbox 去重不会重复展示，
+            // 并按落库当前状态重发 displayed/failed 等终态回执，让 core 收敛。
+            Log.d(TAG, "重复 notification.event（event_id=$eventId），重发 received 并分发业务层恢复终态")
             sendNotificationReceipt(eventId, notificationId, "received")
+            postMain { listener.onNotificationEvent(p) }
             return
         }
         if (lastNotifEventId == null || eventId > lastNotifEventId!!) {

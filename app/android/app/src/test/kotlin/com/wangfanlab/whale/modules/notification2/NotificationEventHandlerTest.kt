@@ -110,6 +110,25 @@ class NotificationEventHandlerTest {
     }
 
     @Test
+    fun `重复 event_id - failed 终态同样按落库重放，且不再提交系统`() = runBlocking {
+        // 终态回执（failed）丢失后 core 补传：重复事件返回 Duplicate，
+        // 按持久 Inbox 的 failed 终态重放回执（收敛），posts 保持 0（从未弹出）。
+        shadowOf(context).denyPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        val json = eventJson()
+        val first = handler.handleEvent(json)
+        assertTrue(first is NotificationEventHandler.HandleResult.Failed)
+        val dup = handler.handleEvent(json)
+        assertTrue(dup is NotificationEventHandler.HandleResult.Duplicate)
+        assertEquals("failed 事件任何一次都不得提交系统", 0, facade.posts.size)
+        assertEquals(listOf("failed", "failed"), uplink.statuses())
+        val e = NotificationEventParser.parseEvent(json)!!
+        assertEquals(
+            NotificationInbox.Status.FAILED,
+            inbox.findByEventId(e.eventId)?.status,
+        )
+    }
+
+    @Test
     fun `collapse_key 合并 - 同键两条事件覆盖同一系统通知 id`() = runBlocking {
         handler.handleEvent(eventJson(eventId = fakeEventId(), collapseKey = "ck"))
         handler.handleEvent(eventJson(eventId = fakeEventId(), collapseKey = "ck"))
