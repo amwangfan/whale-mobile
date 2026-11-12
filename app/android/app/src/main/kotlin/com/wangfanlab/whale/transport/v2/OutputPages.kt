@@ -7,7 +7,11 @@ import java.util.Base64
 /** Byte offsets are independent of UTF-8 characters; base64 keeps split characters lossless. */
 object OutputPages {
     const val MAX_PAGE_BYTES = 48 * 1024
-    data class Request(val offset: Long, val maxBytes: Int)
+    data class Request(val offset: Long, val maxBytes: Int) {
+        init {
+            require(offset in 0..9007199254740991L && maxBytes in 1..MAX_PAGE_BYTES)
+        }
+    }
 
     fun resolve(ref: String, filters: Map<String, Any?>,
         paged: ((String, Long, Int) -> Map<String, Any?>)?,
@@ -31,13 +35,12 @@ object OutputPages {
 
     fun request(filters: Map<String, Any?>): Request {
         fun integer(key: String, default: Long, minimum: Long, maximum: Long): Long {
-            val raw = filters[key] ?: return default
-            require(raw is Number) { "$key must be an integer" }
-            val n = raw.toDouble()
-            require(n.isFinite() && n % 1.0 == 0.0 && n >= minimum && n <= maximum) {
+            if (!filters.containsKey(key)) return default
+            val n = payloadLongV2(filters, key)
+            require(n != null && n >= minimum && n <= maximum) {
                 "$key is outside the supported range"
             }
-            return raw.toLong()
+            return n
         }
         return Request(integer("offset", 0, 0, 9007199254740991L),
             integer("max_bytes", MAX_PAGE_BYTES.toLong(), 1, Int.MAX_VALUE.toLong())
@@ -59,6 +62,11 @@ object OutputPages {
     /** Compatibility for other existing output providers, without changing their APIs. */
     fun legacy(output: Map<String, Any?>, request: Request): Map<String, Any?> {
         if (output["error"] != null) return output
+        require(listOf("truncated", "source_truncated").all {
+            !output.containsKey(it) || output[it] is Boolean
+        }) {
+            "source truncation must be boolean"
+        }
         val bytes = when {
             output["text"] is String -> (output["text"] as String).toByteArray(Charsets.UTF_8)
             output["data_base64"] is String -> Base64.getDecoder().decode(output["data_base64"] as String)
@@ -68,7 +76,7 @@ object OutputPages {
         val start = request.offset.coerceAtMost(bytes.size.toLong()).toInt()
         val end = minOf(bytes.size.toLong(), start.toLong() + request.maxBytes).toInt()
         return envelope(bytes.copyOfRange(start, end), start.toLong(), bytes.size.toLong()) +
-            ("source_truncated" to (output["truncated"] == true))
+            ("source_truncated" to (output["truncated"] == true || output["source_truncated"] == true))
     }
 
     private fun envelope(bytes: ByteArray, offset: Long, total: Long): Map<String, Any?> = mapOf(

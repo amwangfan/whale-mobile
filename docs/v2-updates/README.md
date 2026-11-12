@@ -38,3 +38,11 @@
 第20轮最终收尾：公开异步调用与网络回调共用SerialLifecycle，关闭后忽略新任务，已接收的任务按序完成后清理并关闭调度器；重复/并发销毁仅清理一次，工作线程发起关闭不等待自己。原生执行器和业务回执的迟到完成安全检查调度器关闭状态。Core同步修复旧心跳快照误报掉线与旧连接误发上线事件。继续更新既有PR #53 / Core #81，最终验证见Core索引；本轮后停止。
 
 最终第20轮：Core完整Python **2665 passed /18 skipped**，Mobile纯JVM **125项 /16个测试类通过**，协议72/72、Python工具4 passed /1 skipped、68个契约文件一致。关闭等待最多2秒，超时强制中断；未验证Android组件/完整APK/真机。
+
+第24–25轮：精确分页参数、直接Request及旧来源截断标记校验；纯JVM127项通过。详细说明见Core docs/v2-updates/21-25-output-boundaries.md；本次手机上游同步与远端交付须以logs/34中的实际网络结果为准。
+
+第26轮配套同步：已从最新上游b0cf83a建立refactor/v2-output-hardening-synced，并移植24–25轮；纯JVM127项通过。此前手机上游无法同步的状态已解除，远端PR仍须另行核验。
+
+第27轮：重新分页保留source_truncated，验证来源标记类型；纯JVM129项通过，Core相关93项通过。完整Android构建仍未验收。
+
+第28轮：AgentOutputFiles统一旧格式与分页的引用解析/文件访问，旧文本改为流式保留尾部；Agent2Module删除重复实现。纯JVM132项通过，新读取器222页/221201字节交给Core逐字节重组并解析700元素。完整Android组件仍未编译。

@@ -1064,68 +1064,15 @@ class Agent2Module(
      * - agent:shot:shot-*.jpg（截图 base64）
      * 引用做严格格式校验（§10：拒绝路径形态/畸形引用，绝不泄露本地绝对路径）。
      */
-    fun readOutput(ref: String, offset: Long, maxBytes: Int): Map<String, Any?> {
-        val error = validateOutputRef(ref)
-        if (error != null) return mapOf("error" to error)
-        val file = when {
-            ref.startsWith("agent:out:") -> File(outDir, ref.removePrefix("agent:out:"))
-            ref.startsWith("agent:ui:") -> File(uiDir, ref.removePrefix("agent:ui:") + ".json")
-            ref.startsWith("agent:shot:") -> File(File(appContext.filesDir, "agent2/shots"),
-                ref.removePrefix("agent:shot:"))
-            else -> return mapOf("error" to "bad_ref")
-        }
-        if (!file.isFile) return mapOf("error" to "not_found")
-        return com.wangfanlab.whale.transport.v2.OutputPages.read(file,
-            com.wangfanlab.whale.transport.v2.OutputPages.Request(offset, maxBytes))
+    private val outputFiles by lazy {
+        com.wangfanlab.whale.transport.v2.AgentOutputFiles(outDir, uiDir,
+            File(appContext.filesDir, "agent2/shots"), AgentShell.MAX_TAIL_CHARS)
     }
 
-    fun readOutput(ref: String): Map<String, Any?> {
-        val error = validateOutputRef(ref)
-        if (error != null) return mapOf("error" to error)
-        return when {
-            ref.startsWith("agent:out:") -> {
-                val f = File(outDir, File(ref.removePrefix("agent:out:")).name)
-                if (!f.exists()) return mapOf("error" to "not_found")
-                val text = f.readText()
-                mapOf(
-                    "content_type" to "text",
-                    "text" to text.takeLast(AgentShell.MAX_TAIL_CHARS),
-                    "truncated" to (text.length > AgentShell.MAX_TAIL_CHARS),
-                )
-            }
-            ref.startsWith("agent:ui:") -> {
-                val f = File(uiDir, File(ref.removePrefix("agent:ui:")).name + ".json")
-                if (!f.exists()) return mapOf("error" to "not_found")
-                val text = f.readText()
-                mapOf(
-                    "content_type" to "text",
-                    "text" to text.takeLast(AgentShell.MAX_TAIL_CHARS),
-                    "truncated" to (text.length > AgentShell.MAX_TAIL_CHARS),
-                )
-            }
-            ref.startsWith("agent:shot:") -> {
-                val f = File(File(appContext.filesDir, "agent2/shots"),
-                    File(ref.removePrefix("agent:shot:")).name)
-                if (!f.exists()) return mapOf("error" to "not_found")
-                mapOf(
-                    "content_type" to "image_jpeg",
-                    "data_base64" to Base64.encodeToString(f.readBytes(), Base64.NO_WRAP),
-                    "size_bytes" to f.length(),
-                )
-            }
-            else -> mapOf("error" to "bad_ref")
-        }
-    }
+    fun readOutput(ref: String, offset: Long, maxBytes: Int): Map<String, Any?> =
+        outputFiles.read(ref, com.wangfanlab.whale.transport.v2.OutputPages.Request(offset, maxBytes))
 
-    /** §10 引用白名单校验（未知类别/路径形态一律 bad_ref）。 */
-    private fun validateOutputRef(ref: String): String? {
-        if (".." in ref || ref.contains('\\')) return "bad_ref"
-        val ok = Regex("^agent:out:[A-Za-z0-9_.-]{1,128}$").matches(ref) ||
-            Regex("^agent:ui:obs_[0-9A-HJKMNP-TV-Z]{26}$").matches(ref) ||
-            Regex("^agent:shot:shot-[0-9]+[.](jpg|png)$").matches(ref)
-        return if (ok) null else "bad_ref"
-    }
-
+    fun readOutput(ref: String): Map<String, Any?> = outputFiles.read(ref)
     companion object {
         private const val TAG = "WhaleAgent2"
         const val OBS_CACHE_CAP = 4

@@ -24,6 +24,7 @@ SOURCES = (
     "modules/recording/RecordingOptionsPolicy.kt",
     "transport/v2/ConnectionGeneration.kt",
     "transport/v2/SerialLifecycle.kt",
+    "transport/v2/AgentOutputFiles.kt",
     "modules/glasses/GlassesLogic.kt", "modules/voip/VoipLogic.kt", "modules/notificationread/NotificationReadLogic.kt",
 )
 TESTS = (
@@ -33,6 +34,7 @@ TESTS = (
     "modules/recording/RecordingOptionsPolicyTest.kt",
     "transport/v2/ConnectionGenerationTest.kt",
     "transport/v2/SerialLifecycleTest.kt",
+    "transport/v2/AgentOutputFilesTest.kt",
     "modules/glasses/GlassesLogicTest.kt", "modules/voip/VoipLogicTest.kt", "modules/notificationread/NotificationReadLogicTest.kt",
 )
 
