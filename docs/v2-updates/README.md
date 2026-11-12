@@ -44,3 +44,5 @@
 第26轮配套同步：已从最新上游b0cf83a建立refactor/v2-output-hardening-synced，并移植24–25轮；纯JVM127项通过。此前手机上游无法同步的状态已解除，远端PR仍须另行核验。
 
 第27轮：重新分页保留source_truncated，验证来源标记类型；纯JVM129项通过，Core相关93项通过。完整Android构建仍未验收。
+
+第28轮：AgentOutputFiles统一旧格式与分页的引用解析/文件访问，旧文本改为流式保留尾部；Agent2Module删除重复实现。纯JVM132项通过，新读取器222页/221201字节交给Core逐字节重组并解析700元素。完整Android组件仍未编译。
