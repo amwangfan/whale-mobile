@@ -31,13 +31,12 @@ object OutputPages {
 
     fun request(filters: Map<String, Any?>): Request {
         fun integer(key: String, default: Long, minimum: Long, maximum: Long): Long {
-            val raw = filters[key] ?: return default
-            require(raw is Number) { "$key must be an integer" }
-            val n = raw.toDouble()
-            require(n.isFinite() && n % 1.0 == 0.0 && n >= minimum && n <= maximum) {
+            if (!filters.containsKey(key)) return default
+            val n = payloadLongV2(filters, key)
+            require(n != null && n >= minimum && n <= maximum) {
                 "$key is outside the supported range"
             }
-            return raw.toLong()
+            return n
         }
         return Request(integer("offset", 0, 0, 9007199254740991L),
             integer("max_bytes", MAX_PAGE_BYTES.toLong(), 1, Int.MAX_VALUE.toLong())

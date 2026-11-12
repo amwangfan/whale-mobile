@@ -8,6 +8,16 @@ import java.io.ByteArrayOutputStream
 import java.util.Base64
 
 class OutputPagesTest {
+    @Test fun pagingNumbersCannotLoseFractionalPrecisionOrTreatNullAsMissing() {
+        for (value in listOf(null, java.math.BigDecimal("9007199254740990.5"), "1", true)) {
+            try {
+                OutputPages.request(mapOf("offset" to value))
+                fail("invalid offset accepted: $value")
+            } catch (_: IllegalArgumentException) { }
+        }
+        assertEquals(9007199254740991L,
+            OutputPages.request(mapOf("offset" to 9007199254740991L)).offset)
+    }
     @get:Rule val files = TemporaryFolder()
 
     @Test fun oldQueryPreservesOriginalOutputShape() {
