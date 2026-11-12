@@ -8,6 +8,16 @@ import java.io.ByteArrayOutputStream
 import java.util.Base64
 
 class OutputPagesTest {
+    @Test fun directRequestsAndLegacySourceFlagsHaveTheSameBoundaries() {
+        for ((offset, limit) in listOf(-1L to 1, 0L to 0, 0L to 49153)) {
+            try { OutputPages.Request(offset, limit); fail("invalid direct request") }
+            catch (_: IllegalArgumentException) { }
+        }
+        try {
+            OutputPages.legacy(mapOf("text" to "a", "truncated" to "false"), OutputPages.Request(0, 1))
+            fail("invalid source flag")
+        } catch (_: IllegalArgumentException) { }
+    }
     @Test fun pagingNumbersCannotLoseFractionalPrecisionOrTreatNullAsMissing() {
         for (value in listOf(null, java.math.BigDecimal("9007199254740990.5"), "1", true)) {
             try {

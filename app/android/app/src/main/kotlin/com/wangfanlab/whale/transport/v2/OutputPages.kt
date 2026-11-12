@@ -7,7 +7,11 @@ import java.util.Base64
 /** Byte offsets are independent of UTF-8 characters; base64 keeps split characters lossless. */
 object OutputPages {
     const val MAX_PAGE_BYTES = 48 * 1024
-    data class Request(val offset: Long, val maxBytes: Int)
+    data class Request(val offset: Long, val maxBytes: Int) {
+        init {
+            require(offset in 0..9007199254740991L && maxBytes in 1..MAX_PAGE_BYTES)
+        }
+    }
 
     fun resolve(ref: String, filters: Map<String, Any?>,
         paged: ((String, Long, Int) -> Map<String, Any?>)?,
@@ -58,6 +62,9 @@ object OutputPages {
     /** Compatibility for other existing output providers, without changing their APIs. */
     fun legacy(output: Map<String, Any?>, request: Request): Map<String, Any?> {
         if (output["error"] != null) return output
+        require(!output.containsKey("truncated") || output["truncated"] is Boolean) {
+            "source truncation must be boolean"
+        }
         val bytes = when {
             output["text"] is String -> (output["text"] as String).toByteArray(Charsets.UTF_8)
             output["data_base64"] is String -> Base64.getDecoder().decode(output["data_base64"] as String)
