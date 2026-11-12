@@ -8,6 +8,19 @@ import java.io.ByteArrayOutputStream
 import java.util.Base64
 
 class OutputPagesTest {
+    @Test fun adaptingAnAlreadyTruncatedSourceNeverClearsItsMarker() {
+        val first = OutputPages.legacy(mapOf("text" to "tail", "truncated" to true), OutputPages.Request(0, 4))
+        val second = OutputPages.legacy(first, OutputPages.Request(0, 4))
+        assertEquals(true, second["source_truncated"])
+        assertEquals(false, second["truncated"])
+    }
+
+    @Test fun invalidInheritedSourceMarkerIsRejected() {
+        try {
+            OutputPages.legacy(mapOf("text" to "a", "source_truncated" to "false"), OutputPages.Request(0, 1))
+            fail("invalid source marker")
+        } catch (_: IllegalArgumentException) { }
+    }
     @Test fun directRequestsAndLegacySourceFlagsHaveTheSameBoundaries() {
         for ((offset, limit) in listOf(-1L to 1, 0L to 0, 0L to 49153)) {
             try { OutputPages.Request(offset, limit); fail("invalid direct request") }

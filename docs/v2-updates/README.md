@@ -42,3 +42,5 @@
 第24–25轮：精确分页参数、直接Request及旧来源截断标记校验；纯JVM127项通过。详细说明见Core docs/v2-updates/21-25-output-boundaries.md；本次手机上游同步与远端交付须以logs/34中的实际网络结果为准。
 
 第26轮配套同步：已从最新上游b0cf83a建立refactor/v2-output-hardening-synced，并移植24–25轮；纯JVM127项通过。此前手机上游无法同步的状态已解除，远端PR仍须另行核验。
+
+第27轮：重新分页保留source_truncated，验证来源标记类型；纯JVM129项通过，Core相关93项通过。完整Android构建仍未验收。

@@ -62,7 +62,9 @@ object OutputPages {
     /** Compatibility for other existing output providers, without changing their APIs. */
     fun legacy(output: Map<String, Any?>, request: Request): Map<String, Any?> {
         if (output["error"] != null) return output
-        require(!output.containsKey("truncated") || output["truncated"] is Boolean) {
+        require(listOf("truncated", "source_truncated").all {
+            !output.containsKey(it) || output[it] is Boolean
+        }) {
             "source truncation must be boolean"
         }
         val bytes = when {
@@ -74,7 +76,7 @@ object OutputPages {
         val start = request.offset.coerceAtMost(bytes.size.toLong()).toInt()
         val end = minOf(bytes.size.toLong(), start.toLong() + request.maxBytes).toInt()
         return envelope(bytes.copyOfRange(start, end), start.toLong(), bytes.size.toLong()) +
-            ("source_truncated" to (output["truncated"] == true))
+            ("source_truncated" to (output["truncated"] == true || output["source_truncated"] == true))
     }
 
     private fun envelope(bytes: ByteArray, offset: Long, total: Long): Map<String, Any?> = mapOf(
