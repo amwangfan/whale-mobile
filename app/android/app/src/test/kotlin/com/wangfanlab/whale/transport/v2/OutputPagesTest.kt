@@ -8,6 +8,39 @@ import java.io.ByteArrayOutputStream
 import java.util.Base64
 
 class OutputPagesTest {
+    @Test fun adaptingAnAlreadyTruncatedSourceNeverClearsItsMarker() {
+        val first = OutputPages.legacy(mapOf("text" to "tail", "truncated" to true), OutputPages.Request(0, 4))
+        val second = OutputPages.legacy(first, OutputPages.Request(0, 4))
+        assertEquals(true, second["source_truncated"])
+        assertEquals(false, second["truncated"])
+    }
+
+    @Test fun invalidInheritedSourceMarkerIsRejected() {
+        try {
+            OutputPages.legacy(mapOf("text" to "a", "source_truncated" to "false"), OutputPages.Request(0, 1))
+            fail("invalid source marker")
+        } catch (_: IllegalArgumentException) { }
+    }
+    @Test fun directRequestsAndLegacySourceFlagsHaveTheSameBoundaries() {
+        for ((offset, limit) in listOf(-1L to 1, 0L to 0, 0L to 49153)) {
+            try { OutputPages.Request(offset, limit); fail("invalid direct request") }
+            catch (_: IllegalArgumentException) { }
+        }
+        try {
+            OutputPages.legacy(mapOf("text" to "a", "truncated" to "false"), OutputPages.Request(0, 1))
+            fail("invalid source flag")
+        } catch (_: IllegalArgumentException) { }
+    }
+    @Test fun pagingNumbersCannotLoseFractionalPrecisionOrTreatNullAsMissing() {
+        for (value in listOf(null, java.math.BigDecimal("9007199254740990.5"), "1", true)) {
+            try {
+                OutputPages.request(mapOf("offset" to value))
+                fail("invalid offset accepted: $value")
+            } catch (_: IllegalArgumentException) { }
+        }
+        assertEquals(9007199254740991L,
+            OutputPages.request(mapOf("offset" to 9007199254740991L)).offset)
+    }
     @get:Rule val files = TemporaryFolder()
 
     @Test fun oldQueryPreservesOriginalOutputShape() {
