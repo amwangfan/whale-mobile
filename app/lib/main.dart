@@ -9,6 +9,7 @@ import 'navigation/app_navigation.dart';
 import 'navigation/deep_link_service.dart';
 import 'features/screenmemo/pages/timeline_page.dart';
 import 'modules/module_overview_page.dart';
+import 'theme/whale_theme.dart';
 
 void main() {
   runApp(const WhaleApp());
@@ -23,7 +24,9 @@ class WhaleApp extends StatelessWidget {
     return MaterialApp(
       title: 'Whale',
       navigatorKey: AppNavigation.navigatorKey,
-      theme: ThemeData(colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal)),
+      theme: WhaleTheme.light(),
+      darkTheme: WhaleTheme.dark(),
+      themeMode: ThemeMode.dark, // 原型深色优先（mobile.css 默认深色组）
       home: const HomeShell(),
     );
   }
