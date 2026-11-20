@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../theme/whale_theme.dart';
 import '../controllers/schedule_controller.dart';
 import '../models/schedule_entry.dart';
-import '../services/mock_schedule_repository.dart';
+import '../services/http_schedule_repository.dart';
 import '../services/schedule_repository.dart';
 import 'schedule_review_page.dart';
 
@@ -25,7 +25,7 @@ class SchedulePage extends StatefulWidget {
 
 class _SchedulePageState extends State<SchedulePage> {
   late final ScheduleController controller =
-      ScheduleController(widget._repository ?? MockScheduleRepository());
+      ScheduleController(widget._repository ?? HttpScheduleRepository());
 
   @override
   void initState() {
