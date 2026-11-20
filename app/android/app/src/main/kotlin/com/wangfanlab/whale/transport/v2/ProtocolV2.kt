@@ -34,6 +34,25 @@ const val DIR_DOWNLINK = "downlink"
 const val MAX_TS_MS = 4102444800000L
 const val MAX_SEQ = 9007199254740991L
 
+/**
+ * 网关地址归一化（2026-11-20 nova 复盘）：连接串缺路径段时自动补 [WSS_PATH_V2]。
+ * 背景：客户端对 URL 原样直连，裸根（`wss://host:port` 或带裸 `/`）会把 WS upgrade
+ * 打到网关根路径、到不了设备路由（对端只见 502/404，零设备连接）。
+ * 仅在路径完全缺失时拼接；已带任何路径的输入原样返回（不猜测改写）；无法识别的
+ * 输入不猜不改（首尾空白会先裁掉），由连接层如实报错。scheme 大小写不敏感、原写法保留。
+ */
+fun normalizeGatewayUrlV2(url: String): String {
+    val t = url.trim()
+    val m = Regex("^(wss?://[^/?#]+)([/?#].*)?$", RegexOption.IGNORE_CASE).find(t) ?: return t
+    val authority = m.groupValues[1]
+    val tail = m.groups[2]?.value.orEmpty()
+    return when {
+        tail.isEmpty() || tail == "/" -> authority + WSS_PATH_V2
+        tail[0] == '?' || tail[0] == '#' -> authority + WSS_PATH_V2 + tail
+        else -> t
+    }
+}
+
 class EnvelopeExceptionV2(message: String) : Exception(message)
 
 // ------------------------------------------------------------- ULID（§3）

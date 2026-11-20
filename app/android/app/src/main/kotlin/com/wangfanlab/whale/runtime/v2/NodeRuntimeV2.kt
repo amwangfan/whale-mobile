@@ -542,6 +542,12 @@ class NodeRuntimeV2 private constructor(
      * app_flavor=BuildConfig.FLAVOR、features 实测；HelloConfig 由本函数组装）。
      */
     fun connect(url: String, appVersion: String = detectAppVersion()) {
+        // 缺路径段的裸根地址自动补 WSS_PATH_V2（2026-11-20 nova 复盘：URL 原样直连，
+        // 裸根打不到设备路由）。存库值即归一化结果，恢复路径与 UI 共用本漏斗。
+        val normalizedUrl = com.wangfanlab.whale.transport.v2.normalizeGatewayUrlV2(url)
+        if (normalizedUrl != url.trim()) {
+            Log.i(TAG, "网关地址缺路径段，已自动补全为 $normalizedUrl")
+        }
         if (shutdown) {
             // kill switch 后允许显式重连（用户主动操作）
             shutdown = false
@@ -550,9 +556,9 @@ class NodeRuntimeV2 private constructor(
         appContext.getSharedPreferences(NODE_PREFS_NAME_V2, Context.MODE_PRIVATE).edit()
             .putBoolean(KEY_WAS_CONNECTED, true)
             .putBoolean(KEY_REVOKED, false)
-            .putString(KEY_GATEWAY_URL, url)
+            .putString(KEY_GATEWAY_URL, normalizedUrl)
             .apply()
-        client.connect(url, buildHelloConfig(appVersion))
+        client.connect(normalizedUrl, buildHelloConfig(appVersion))
     }
 
     /** 组装 device.hello 配置（能力集按构建变体；features 实测）。 */
