@@ -48,3 +48,8 @@ Thumbs.db
 captures/
 *.screenrecord/
 docs/measurements/
+
+# --- 荣耀 InCallUI 逆向参考资源（敏感件，永不入仓；只进 tmp 构建链 staging） ---
+**/*.glsl
+**/incallui-staging/
+app/android/app/src/main/assets/incallui/
