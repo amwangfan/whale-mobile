@@ -18,9 +18,21 @@ class ScheduleSource {
   factory ScheduleSource.fromMap(Map<String, dynamic> m) => ScheduleSource(
         conversation: m['conversation'] as String? ?? '',
         messageId: m['messageId'] as String? ?? '',
-        at: (m['at'] as num?)?.toInt() ?? 0,
+        at: parseWireTime(m['at']),
         excerpt: m['excerpt'] as String? ?? '',
       );
+}
+
+/// 契约字段时间值的宽容解析：epoch 秒（int）或 ISO-8601 字符串（线上 0c76d12 实发 ISO）。
+int parseWireTime(Object? v) {
+  if (v is num) return v.toInt();
+  if (v is String) {
+    final n = num.tryParse(v);
+    if (n != null) return n.toInt();
+    final dt = DateTime.tryParse(v);
+    if (dt != null) return dt.millisecondsSinceEpoch ~/ 1000;
+  }
+  return 0;
 }
 
 /// 候选（state=pending）与正式日程（state=added）同形（契约：/candidates 与 /list 条目同形）。
@@ -44,7 +56,8 @@ class ScheduleEntry {
   final int createdAt;
 
   factory ScheduleEntry.fromMap(Map<String, dynamic> m) => ScheduleEntry(
-        id: m['id'] as String? ?? '',
+        // 线上 0c76d12 用 item_id/created_at；契约文档写 id/createdAt——两种拼写都收。
+        id: (m['id'] ?? m['item_id'] ?? m['candidate_id'] ?? '') as String,
         title: m['title'] as String? ?? '',
         date: m['date'] as String? ?? '',
         time: m['time'] as String?,
@@ -52,7 +65,7 @@ class ScheduleEntry {
             ? ScheduleSource.fromMap(m['source'] as Map<String, dynamic>)
             : null,
         state: m['state'] as String? ?? 'pending',
-        createdAt: (m['createdAt'] as num?)?.toInt() ?? 0,
+        createdAt: parseWireTime(m['createdAt'] ?? m['created_at']),
       );
 
   /// 去重键（用户令：与日历视图合并渲染时同事件不双卡）。
@@ -80,7 +93,7 @@ class SourceMessage {
 
   factory SourceMessage.fromMap(Map<String, dynamic> m) => SourceMessage(
         messageId: m['messageId'] as String? ?? '',
-        at: (m['at'] as num?)?.toInt() ?? 0,
+        at: parseWireTime(m['at']),
         sender: m['sender'] as String? ?? '',
         text: m['text'] as String? ?? '',
       );
