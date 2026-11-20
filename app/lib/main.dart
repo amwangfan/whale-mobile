@@ -8,6 +8,7 @@ import 'features/settings/pages/core_settings_page.dart';
 import 'navigation/app_navigation.dart';
 import 'navigation/deep_link_service.dart';
 import 'features/screenmemo/pages/timeline_page.dart';
+import 'features/schedule/pages/schedule_page.dart';
 import 'modules/module_overview_page.dart';
 import 'theme/whale_theme.dart';
 
@@ -79,6 +80,7 @@ class _HomeShellState extends State<HomeShell> {
           ConversationListPage(),
           TimelinePage(),
           InboxPage(),
+          SchedulePage(), // 日程溯源（增量 tab，旧四页不动）
           ProfilePage(),
         ],
       ),
@@ -89,6 +91,7 @@ class _HomeShellState extends State<HomeShell> {
           NavigationDestination(icon: Icon(Icons.chat_bubble_outline), label: '聊天'),
           NavigationDestination(icon: Icon(Icons.burst_mode), label: '感知'),
           NavigationDestination(icon: Icon(Icons.notifications_outlined), label: '通知'),
+          NavigationDestination(icon: Icon(Icons.event_note_outlined), label: '日程'),
           NavigationDestination(icon: Icon(Icons.person_outline), label: '我的'),
         ],
       ),
