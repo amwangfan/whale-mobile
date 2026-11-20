@@ -12,6 +12,8 @@ import android.telecom.PhoneAccountHandle;
 import android.telecom.TelecomManager;
 import android.util.Log;
 
+import com.wangfanlab.whale.modules.voip.IncomingRoutePolicy;
+
 public class FakeConnectionService extends ConnectionService {
     private static final String TAG = "WhaleVoip";
     public static volatile FakeConnection sActive;
@@ -54,7 +56,11 @@ public class FakeConnectionService extends ConnectionService {
 
     @Override
     public Connection onCreateIncomingConnection(PhoneAccountHandle handle, ConnectionRequest request) {
-        FileLog.i("onCreateIncomingConnection " + request);
+        FileLog.i("onCreateIncomingConnection " + request + " handle="
+                + (handle != null ? handle.getId() : "null"));
+        // HANDOFF 路A：经 whale-in-managed 托管账户上报 → 原厂 InCallUI 接管
+        // （系统渲染来电动画+响默认铃声），whale 不自绘 UI、不自播铃、不发 FSI。
+        boolean managedUi = CallAccountHelper.isInManagedHandle(handle);
         String number = "***";
         String name = "***";
         String bridgeHost = BridgePrefs.DEFAULT_HOST;
@@ -90,21 +96,28 @@ public class FakeConnectionService extends ConnectionService {
             }
         }
 
-        FakeConnection conn = new FakeConnection(number, name, bridgeHost, bridgePort, true);
-        conn.setConnectionProperties(Connection.PROPERTY_SELF_MANAGED);
+        FakeConnection conn = new FakeConnection(number, name, bridgeHost, bridgePort, !managedUi);
+        if (!managedUi) {
+            conn.setConnectionProperties(Connection.PROPERTY_SELF_MANAGED);
+        }
         conn.setAddress(Uri.fromParts("tel", number, null), TelecomManager.PRESENTATION_ALLOWED);
         conn.setCallerDisplayName(name, TelecomManager.PRESENTATION_ALLOWED);
         conn.setAudioModeIsVoip(true);
         // Stay RINGING until user answers — never setActive / AudioBridge here.
         conn.setRinging();
         sActive = conn;
-        RingToneHelper.start(this);
+        if (IncomingRoutePolicy.shouldPlayOwnRingtone(managedUi)) {
+            RingToneHelper.start(this);
+        }
         FileLog.i("incoming STATE_RINGING number=" + number + " name=" + name
-                + " (no bridge yet)");
+                + " managedUi=" + managedUi + " (no bridge yet)");
         notifyCallState("ringing", conn, null);
 
-        // Primary path for Honor/Android 10+: FSI notification (BAL-safe).
-        IncomingNotification.show(this, number, name, bridgeHost, bridgePort);
+        if (IncomingRoutePolicy.shouldPostOwnNotification(managedUi)) {
+            // Primary path for Honor/Android 10+ self-managed: FSI notification (BAL-safe).
+            // managedUi 路径由系统原厂 InCallUI 出界面，whale 不再发全屏通知。
+            IncomingNotification.show(this, number, name, bridgeHost, bridgePort);
+        }
         return conn;
     }
 
@@ -140,12 +153,22 @@ public class FakeConnectionService extends ConnectionService {
             }
             managed = extras.getBoolean("nova_ai_managed", false);
         }
-        if (handle != null && CallAccountHelper.ACCOUNT_ID_AI_OUT.equals(handle.getId())) {
+        boolean isAiOut = handle != null
+                && CallAccountHelper.ACCOUNT_ID_AI_OUT.equals(handle.getId());
+        boolean isInManaged = CallAccountHelper.isInManagedHandle(handle);
+        if (isAiOut || isInManaged) {
             managed = true;
+        }
+        // 重定向承接账户（whale-in-managed）未显式给显示名时，以被拨号码作显示名
+        // （原厂 InCallUI 以 address 为主显示，此为兜底）。
+        if (isInManaged && "AI 助手".equals(name) && number != null && number.length() > 0) {
+            name = number;
         }
 
         String norm = normalize(number);
-        if (managed && !"1".equals(norm)) {
+        // 限号 "1" 仅属「拨 1 打 AI」账户（nova-ai-out）；whale-in-managed 承接
+        // 拨号重定向的任意号码，不加限制。
+        if (isAiOut && !"1".equals(norm)) {
             Log.w(TAG, "CallProvider rejecting non-1 number: " + number);
             FakeConnection bad = new FakeConnection(number, name, bridgeHost, bridgePort, false);
             bad.setAddress(Uri.fromParts("tel", number == null ? "" : number, null),
@@ -384,6 +407,12 @@ public class FakeConnectionService extends ConnectionService {
 
         @Override
         public void onShowIncomingCallUi() {
+            // 仅 self-managed 连接才会被 Telecom 回调本方法（managed 由系统出 UI）；
+            // 防御性再查一次，managed 路径绝不自播铃/自发通知。
+            if (!selfManaged) {
+                FileLog.i("onShowIncomingCallUi on managed connection — ignored (stock InCallUI)");
+                return;
+            }
             FileLog.i("onShowIncomingCallUi → FSI + IncomingCallActivity");
             FakeConnectionService svc = sInstance;
             if (svc != null) RingToneHelper.start(svc);

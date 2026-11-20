@@ -13,12 +13,20 @@ import android.util.Log;
 import java.util.Collections;
 import java.util.List;
 
+import com.wangfanlab.whale.modules.voip.IncomingRoutePolicy;
+import com.wangfanlab.whale.modules.voip.VoipAccounts;
+
 public final class CallAccountHelper {
     private static final String TAG = "WhaleVoip";
     /** Existing self-managed account for fake incoming ring. */
-    public static final String ACCOUNT_ID = "nova-fake-call";
+    public static final String ACCOUNT_ID = VoipAccounts.ID_SELF_MANAGED;
     /** Managed CallProvider for dial-1 → system InCall UI. */
-    public static final String ACCOUNT_ID_AI_OUT = "nova-ai-out";
+    public static final String ACCOUNT_ID_AI_OUT = VoipAccounts.ID_AI_OUT;
+    /**
+     * Managed(CallProvider) 来电/重定向承接账户（HANDOFF 路A）：来电经它上报 Telecom
+     * → 原厂 InCallUI 接管（荣耀动画+系统默认铃声）；拨号重定向也指向它（号码不限）。
+     */
+    public static final String ACCOUNT_ID_IN_MANAGED = VoipAccounts.ID_MANAGED_IN;
 
     private CallAccountHelper() {}
 
@@ -30,6 +38,11 @@ public final class CallAccountHelper {
     public static PhoneAccountHandle handleAiOut(Context ctx) {
         return new PhoneAccountHandle(
                 new ComponentName(ctx, FakeConnectionService.class), ACCOUNT_ID_AI_OUT);
+    }
+
+    public static PhoneAccountHandle handleInManaged(Context ctx) {
+        return new PhoneAccountHandle(
+                new ComponentName(ctx, FakeConnectionService.class), ACCOUNT_ID_IN_MANAGED);
     }
 
     public static void ensureRegistered(Context ctx) {
@@ -56,6 +69,21 @@ public final class CallAccountHelper {
         tm.registerPhoneAccount(out);
         Log.i(TAG, "PhoneAccount registered (CallProvider nova-ai-out): " + handleAiOut(ctx)
                 + " — enable in Settings → Calling accounts, or root-enable");
+
+        // Managed(CallProvider) 来电承接账户（HANDOFF 路A）：初始 DISABLED，
+        // 启用后来电经它上报 → 系统原厂 InCallUI 渲染（荣耀动画+默认铃声），
+        // whale 不再自绘来电 UI。启用：Settings → 通话账户，或
+        // adb shell cmd telecom set-phone-account-enabled \
+        //   com.wangfanlab.whale/com.wangfanlab.whale.voip.FakeConnectionService whale-in-managed 0
+        PhoneAccount inManaged = new PhoneAccount.Builder(handleInManaged(ctx), "Whale 来电")
+                .setCapabilities(PhoneAccount.CAPABILITY_CALL_PROVIDER)
+                .setSupportedUriSchemes(Collections.singletonList(PhoneAccount.SCHEME_TEL))
+                .setHighlightColor(Color.parseColor("#1A73E8"))
+                .setShortDescription("Whale VoIP 来电（托管，原厂通话界面+系统铃声）")
+                .build();
+        tm.registerPhoneAccount(inManaged);
+        Log.i(TAG, "PhoneAccount registered (managed incoming whale-in-managed): "
+                + handleInManaged(ctx) + " — starts DISABLED until user/adb enables");
 
         // Best-effort: make Nova AI the user-selected default outgoing account so
         // Dialer skips the multi-account picker. Needs MODIFY_PHONE_STATE (usually
@@ -105,7 +133,11 @@ public final class CallAccountHelper {
                             String bridgeHost, int bridgePort) {
         ensureRegistered(ctx);
         TelecomManager tm = (TelecomManager) ctx.getSystemService(Context.TELECOM_SERVICE);
-        PhoneAccountHandle h = handle(ctx);
+        // HANDOFF 路A：managed 承接账户已启用 → 以它上报，Telecom 绑定原厂 InCallUI
+        // （荣耀动画+系统默认铃声）；未启用 → 回落 self-managed（whale 自绘+自播铃）。
+        boolean managedEnabled = isInManagedEnabled(ctx);
+        PhoneAccountHandle h = IncomingRoutePolicy.useStockInCallUi(managedEnabled)
+                ? handleInManaged(ctx) : handle(ctx);
         Bundle extras = new Bundle();
         Uri addr = Uri.fromParts("tel", number, null);
         extras.putParcelable(TelecomManager.EXTRA_INCOMING_CALL_ADDRESS, addr);
@@ -114,8 +146,26 @@ public final class CallAccountHelper {
         extras.putString("bridge_host", bridgeHost);
         extras.putInt("bridge_port", bridgePort);
         FileLog.i("addNewIncomingCall " + number + " / " + displayName
+                + " handle=" + h.getId() + " managedUi=" + managedEnabled
                 + " bridge=" + bridgeHost + ":" + bridgePort);
         tm.addNewIncomingCall(h, extras);
+    }
+
+    /** managed 来电承接账户是否已被用户/adb 启用（决定路A是否生效）。 */
+    public static boolean isInManagedEnabled(Context ctx) {
+        try {
+            TelecomManager tm = (TelecomManager) ctx.getSystemService(Context.TELECOM_SERVICE);
+            PhoneAccount acct = tm.getPhoneAccount(handleInManaged(ctx));
+            return acct != null && acct.isEnabled();
+        } catch (Throwable t) {
+            Log.w(TAG, "isInManagedEnabled check failed, assume disabled", t);
+            return false;
+        }
+    }
+
+    /** True if handle is our managed incoming/redirect 承接账户. */
+    public static boolean isInManagedHandle(PhoneAccountHandle h) {
+        return h != null && ACCOUNT_ID_IN_MANAGED.equals(h.getId());
     }
 
     /**

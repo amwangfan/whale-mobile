@@ -107,6 +107,22 @@
             </intent-filter>
         </service>
 
+        <!-- 拨号→VoIP 重定向（HANDOFF 二节）：原厂拨号器发起的呼叫经 Telecom 咨询
+             本服务，重定向到 whale managed 承接账户（whale-in-managed）由 VoIP 承接。
+             测试期启用（披露留痕）：
+               adb shell cmd telecom set-test-call-redirection-app com.wangfanlab.whale
+             正式启用（本阶段不做，待 Tob/用户批）：
+               RoleManager.ROLE_CALL_REDIRECTION 用户授权。
+             API 29+ 才存在该类；更低版本系统永不绑定，类不会被加载。 -->
+        <service
+            android:name="com.wangfanlab.whale.voip.WhaleCallRedirectionService"
+            android:permission="android.permission.BIND_CALL_REDIRECTION_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.telecom.CallRedirectionService" />
+            </intent-filter>
+        </service>
+
         <!-- legacy 信令长轮询（默认不启用，SignalPrefs.isEnabled 宿主默认 false；
              保留代码供调试，无 BootReceiver——宿主开机不自动恢复长轮询） -->
         <service
