@@ -337,10 +337,13 @@ class OfflineQueue(
     }
 
     private fun addDropped(db: SQLiteDatabase, delta: Long) {
+        // 不用 ON CONFLICT...DO UPDATE（UPSERT 需 SQLite 3.24+，API 26–28 内置
+        // SQLite 更旧）：拆成 INSERT OR IGNORE + UPDATE 两步，全版本兼容。
+        // 调用点均在 @Synchronized 方法的事务内，无并发隐患。
+        db.execSQL("INSERT OR IGNORE INTO queue_meta(key, value) VALUES('$META_DROPPED', '0')")
         db.execSQL(
-            "INSERT INTO queue_meta(key, value) VALUES('$META_DROPPED', ?) " +
-                "ON CONFLICT(key) DO UPDATE SET value = CAST(value AS INTEGER) + ?",
-            arrayOf(delta.toString(), delta.toString()),
+            "UPDATE queue_meta SET value = CAST(value AS INTEGER) + ? WHERE key = '$META_DROPPED'",
+            arrayOf(delta.toString()),
         )
     }
 

@@ -20,7 +20,9 @@ import org.robolectric.annotation.Config
  * 损坏密文 fail-closed 丢弃、无明文可检索、容量语义不变。
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [28])
+// sdk=26 变体常驻回归：minSdk=26 区间的旧 SQLite（<3.24，无 UPSERT）方言兼容性
+// （addDropped 曾因此崩，见 OfflineQueue.addDropped 注释）；sdk=28 为原基准。
+@Config(sdk = [26, 28])
 class OfflineQueueEncryptionTest {
 
     private lateinit var context: Context
