@@ -52,9 +52,9 @@ object CallValidator {
         if (number.isNullOrEmpty() || !NUMBER_REGEX.matches(number)) {
             return RingDecision.Reject("invalid_message")
         }
-        // 超长截断不拒绝（与通知模块一致）；空名回落默认显示名。
-        val name = ((args["name"] as? String)?.trim().orEmpty()
-            .ifEmpty { "AI 助手" }).take(MAX_NAME_LEN)
+        // 超长截断不拒绝（与通知模块一致）；空名不再回落默认显示名（2026-11-21 主人令：
+        // 协议支持真空名——来电只显号码、不显名称；占位回落已废）。
+        val name = ((args["name"] as? String)?.trim().orEmpty()).take(MAX_NAME_LEN)
         val host = (args["bridge_host"] as? String)?.trim().orEmpty()
             .ifEmpty { defaultHost }
         if (host.length > MAX_HOST_LEN || host.any { it.isWhitespace() || it < '!' }) {

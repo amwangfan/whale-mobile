@@ -79,8 +79,9 @@ public class FakeConnectionService extends ConnectionService {
         }
         Bundle extras = request.getExtras();
         if (extras != null) {
-            if (extras.getString("display_name") != null
-                    && extras.getString("display_name").length() > 0) {
+            /* 2026-11-21 主人令：真空名语义——display_name 显式空串=不显名称只显号码
+             * （stock InCallUI 只见 number）；display_name 缺席=旧行为 *** 占位。 */
+            if (extras.getString("display_name") != null) {
                 name = extras.getString("display_name");
             }
             if (extras.getString("bridge_host") != null
@@ -101,7 +102,9 @@ public class FakeConnectionService extends ConnectionService {
             conn.setConnectionProperties(Connection.PROPERTY_SELF_MANAGED);
         }
         conn.setAddress(Uri.fromParts("tel", number, null), TelecomManager.PRESENTATION_ALLOWED);
-        conn.setCallerDisplayName(name, TelecomManager.PRESENTATION_ALLOWED);
+        if (!name.isEmpty()) {
+            conn.setCallerDisplayName(name, TelecomManager.PRESENTATION_ALLOWED);
+        }   /* 真空名：不设 caller display name，stock InCallUI 只显号码 */
         conn.setAudioModeIsVoip(true);
         // Stay RINGING until user answers — never setActive / AudioBridge here.
         conn.setRinging();

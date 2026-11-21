@@ -39,9 +39,9 @@ class VoipLogicTest {
     }
 
     @Test
-    fun `name 省略回落默认 超长截断 40 字符`() {
+    fun `name 省略不再回落 真空名透传 超长截断 40 字符`() {
         val d1 = CallValidator.validateRingArgs(mapOf("number" to "10086"))
-        assertEquals("AI 助手", (d1 as RingDecision.Execute).spec.name)
+        assertEquals("", (d1 as RingDecision.Execute).spec.name)   // 真空名透传（只显号码不显名称）
         val d2 = CallValidator.validateRingArgs(
             mapOf("number" to "10086", "name" to "长".repeat(60)),
         )
