@@ -39,9 +39,11 @@ class _ModuleOverviewPageState extends State<ModuleOverviewPage> {
 
   /// 默认网关地址可用 `--dart-define=WM_GATEWAY_URL=ws://host:port` 覆盖，
   /// 便于真机联调时注入 tailnet/内网地址而不入库。
+  /// 2026-11-21 主人令：默认改公网域名 wss://rayneo.wangfanlab.com/api/v2/devices/ws
+  /// （持久化成默认，不再手填尾网 IP；client 原样直连不拼路径，须全路径）。
   static const String _defaultGatewayUrl = String.fromEnvironment(
     'WM_GATEWAY_URL',
-    defaultValue: 'ws://10.0.2.2:8765',
+    defaultValue: 'wss://rayneo.wangfanlab.com/api/v2/devices/ws',
   );
 
   TransportState _state = TransportState.disconnected;
