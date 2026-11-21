@@ -145,7 +145,7 @@ device.media.seek_to
 | `run.trace.event` | up | RunTraceEvent 对象（§12） | Agent 执行轨迹步 |
 | `recording.control` | down | run_id, op(start/pause/resume/stop), options? | MediaProjection 录制控制 |
 | `recording.state` | up | run_id, state, file_ref?, duration_ms?, error_code? | 录制状态回报 |
-| `call.invite` / `call.answer` / `call.hangup` / `call.state` | both | 同 V1（number pattern 修正为 `^\+?[0-9*#]{1,23}$`；answer.accepted、hangup.reason、state.state 枚举正式入文档） | 挂断即撤销会话临时 scope |
+| `call.invite` / `call.answer` / `call.hangup` / `call.state` | both | 同 V1（number pattern 修正为 `^\+?[0-9*#]{1,23}$`；answer.accepted、hangup.reason、state.state 枚举正式入文档；name 可选，空串/缺省=不显名称只显号码——2026-11-21 定） | 挂断即撤销会话临时 scope |
 | `notification.event` | down | event_id, notification_id, device_id, category, title, body, priority, created_at, expires_at, target?, actions?, group_key?, collapse_key? | 原生通知事件（§13） |
 | `notification.receipt` | up | event_id, notification_id, device_id, status, received_at | 送达/展示回执（§13） |
 | `notification.action` | up | event_id, notification_id, device_id, action_id, submitted_at | 通知按钮操作（§13） |
