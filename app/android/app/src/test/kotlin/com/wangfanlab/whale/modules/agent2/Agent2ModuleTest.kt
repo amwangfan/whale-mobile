@@ -125,6 +125,29 @@ class Agent2ModuleTest {
             calls.add("prev:$packageName")
             return sessionList?.any { it.packageName == packageName } == true
         }
+
+        /** seek 后读回位置编排：null=按目标落地；否则读回该值（±2s 边界用）。 */
+        var seekLandsAt: Long? = null
+        /** true=seek 下发失败。 */
+        var seekFails = false
+        /** true=seek 后媒体段不可读（verification skipped 路径）。 */
+        var unreadableOnSeek = false
+
+        override fun seekTo(packageName: String, positionMs: Long): Boolean {
+            calls.add("seek:$packageName:$positionMs")
+            if (seekFails) return false
+            val list = sessionList ?: return false
+            if (list.none { it.packageName == packageName }) return false
+            if (unreadableOnSeek) {
+                sessionList = null
+            } else {
+                val landing = seekLandsAt ?: positionMs
+                sessionList = list.map {
+                    if (it.packageName != packageName) it else it.copy(positionMs = landing)
+                }
+            }
+            return true
+        }
     }
 
     private lateinit var fakeAccessibility: FakeAccessibility
@@ -385,6 +408,204 @@ class Agent2ModuleTest {
         assertEquals("succeeded", t["status"])
         assertEquals("input keyevent MEDIA_PLAY_PAUSE", fakeShell.calls.last().command)
         assertTrue("root 通道不触碰 MediaSession", fakeMedia.calls.isEmpty())
+    }
+
+    // ------------------------------------------------------------- device.media.seek_to（§5.1 增项）
+
+    private fun biliSession(
+        positionMs: Long = 83_000L,
+        durationMs: Long = 613_000L,
+    ) = MediaSessionControl.SessionInfo(
+        "tv.danmaku.bili", MediaSessionLogic.STATE_PLAYING, positionMs, durationMs, "示例视频",
+    )
+
+    @Test
+    fun `media seek_to by position_ms seeks and verifies landing`() {
+        fakeMedia.sessionList = listOf(biliSession())
+        foreground = "tv.danmaku.bili"
+        newModule(rootEdition = false).registerTo(dispatcher)
+        val t = handleAndTerminal(
+            request("device.media.seek_to", mapOf("position_ms" to 300_000L)),
+        )
+        assertEquals("succeeded", t["status"])
+        assertEquals(listOf("seek:tv.danmaku.bili:300000"), fakeMedia.calls.toList())
+        @Suppress("UNCHECKED_CAST")
+        val result = t["result"] as Map<String, Any?>
+        // 回执摘要挂落点 position_ms
+        assertTrue(result["summary"].toString().contains("position_ms=300000"))
+        @Suppress("UNCHECKED_CAST")
+        val v = result["verification"] as Map<String, Any?>
+        assertEquals("passed", v["status"])
+        assertTrue("seek 无 shell 等价物，不得走 shell", fakeShell.calls.isEmpty())
+    }
+
+    @Test
+    fun `media seek_to on root edition still goes media session not shell`() {
+        // seek 无 input keyevent 等价物：root 在位也不走 shell（与媒体键分流不同）
+        fakeMedia.sessionList = listOf(biliSession())
+        newModule(rootEdition = true).registerTo(dispatcher)
+        val t = handleAndTerminal(
+            request("device.media.seek_to", mapOf("position_ms" to 300_000L)),
+        )
+        assertEquals("succeeded", t["status"])
+        assertEquals(listOf("seek:tv.danmaku.bili:300000"), fakeMedia.calls.toList())
+        assertTrue(fakeShell.calls.isEmpty())
+    }
+
+    @Test
+    fun `media seek_to prefers position_ms over ratio`() {
+        fakeMedia.sessionList = listOf(biliSession())
+        newModule(rootEdition = false).registerTo(dispatcher)
+        val t = handleAndTerminal(
+            request("device.media.seek_to", mapOf("position_ms" to 100_000L, "ratio" to 0.5)),
+        )
+        assertEquals("succeeded", t["status"])
+        // position_ms 优先（审注①）：落点不是 ratio×duration=306500
+        assertEquals(listOf("seek:tv.danmaku.bili:100000"), fakeMedia.calls.toList())
+    }
+
+    @Test
+    fun `media seek_to by ratio resolves against duration`() {
+        fakeMedia.sessionList = listOf(biliSession())
+        newModule(rootEdition = false).registerTo(dispatcher)
+        val t = handleAndTerminal(request("device.media.seek_to", mapOf("ratio" to 0.5)))
+        assertEquals("succeeded", t["status"])
+        assertEquals(listOf("seek:tv.danmaku.bili:306500"), fakeMedia.calls.toList())
+    }
+
+    @Test
+    fun `media seek_to ratio without duration fails honestly`() {
+        fakeMedia.sessionList = listOf(biliSession(durationMs = -1L))
+        newModule(rootEdition = false).registerTo(dispatcher)
+        val t = handleAndTerminal(request("device.media.seek_to", mapOf("ratio" to 0.5)))
+        assertEquals("failed", t["status"])
+        assertEquals("unavailable", t["error_code"])
+        assertTrue("duration 未知绝不估算、绝不下发 seek", fakeMedia.calls.isEmpty())
+    }
+
+    @Test
+    fun `media seek_to fails closed when no active session`() {
+        fakeMedia.sessionList = emptyList()
+        newModule(rootEdition = false).registerTo(dispatcher)
+        val t = handleAndTerminal(
+            request("device.media.seek_to", mapOf("position_ms" to 300_000L)),
+        )
+        assertEquals("failed", t["status"])
+        assertEquals("unavailable", t["error_code"])
+        assertTrue(fakeMedia.calls.isEmpty())
+    }
+
+    @Test
+    fun `media seek_to fails closed when sessions unreadable`() {
+        fakeMedia.sessionList = null // 通知监听未授权
+        newModule(rootEdition = false).registerTo(dispatcher)
+        val t = handleAndTerminal(
+            request("device.media.seek_to", mapOf("position_ms" to 300_000L)),
+        )
+        assertEquals("failed", t["status"])
+        assertEquals("unavailable", t["error_code"])
+        assertTrue(fakeMedia.calls.isEmpty())
+    }
+
+    @Test
+    fun `media seek_to fails closed on ambiguous sessions`() {
+        // 两个播放中会话且前台不在其中：歧义，拒绝盲拖
+        fakeMedia.sessionList = listOf(
+            MediaSessionControl.SessionInfo("com.a", MediaSessionLogic.STATE_PLAYING, 0L, -1L, ""),
+            MediaSessionControl.SessionInfo("com.b", MediaSessionLogic.STATE_PLAYING, 0L, -1L, ""),
+        )
+        foreground = "com.c"
+        newModule(rootEdition = false).registerTo(dispatcher)
+        val t = handleAndTerminal(
+            request("device.media.seek_to", mapOf("position_ms" to 300_000L)),
+        )
+        assertEquals("failed", t["status"])
+        assertEquals("unavailable", t["error_code"])
+        assertTrue(fakeMedia.calls.isEmpty())
+    }
+
+    @Test
+    fun `media seek_to rejects invalid arguments before touching sessions`() {
+        fakeMedia.sessionList = listOf(biliSession())
+        newModule(rootEdition = false).registerTo(dispatcher)
+        // 二选一皆缺
+        assertEquals(
+            "invalid_message",
+            handleAndTerminal(request("device.media.seek_to", emptyMap()))["error_code"],
+        )
+        // position_ms 越界（契约 int≥0）
+        assertEquals(
+            "invalid_message",
+            handleAndTerminal(
+                request("device.media.seek_to", mapOf("position_ms" to -1L)),
+            )["error_code"],
+        )
+        // ratio 越界（契约 float∈[0,1]）
+        assertEquals(
+            "invalid_message",
+            handleAndTerminal(
+                request("device.media.seek_to", mapOf("ratio" to 1.5)),
+            )["error_code"],
+        )
+        assertTrue(fakeMedia.calls.isEmpty())
+    }
+
+    @Test
+    fun `media seek_to verify passes at plus 2s boundary`() {
+        // 边界：|落点-目标|=2000 → passed（verify 口径：±2s 内）
+        fakeMedia.sessionList = listOf(biliSession())
+        fakeMedia.seekLandsAt = 302_000L
+        newModule(rootEdition = false).registerTo(dispatcher)
+        val t = handleAndTerminal(
+            request("device.media.seek_to", mapOf("position_ms" to 300_000L)),
+        )
+        assertEquals("succeeded", t["status"])
+        @Suppress("UNCHECKED_CAST")
+        val v = (t["result"] as Map<String, Any?>)["verification"] as Map<String, Any?>
+        assertEquals("passed", v["status"])
+    }
+
+    @Test
+    fun `media seek_to verify fails beyond 2s tolerance`() {
+        fakeMedia.sessionList = listOf(biliSession())
+        fakeMedia.seekLandsAt = 302_001L
+        newModule(rootEdition = false).registerTo(dispatcher)
+        val t = handleAndTerminal(
+            request("device.media.seek_to", mapOf("position_ms" to 300_000L)),
+        )
+        assertEquals("succeeded", t["status"])
+        @Suppress("UNCHECKED_CAST")
+        val v = (t["result"] as Map<String, Any?>)["verification"] as Map<String, Any?>
+        assertEquals("failed", v["status"])
+        assertTrue(v["summary"].toString().contains("偏出"))
+    }
+
+    @Test
+    fun `media seek_to verify skipped when media unreadable after seek`() {
+        // skipped 只在无 media 段可读时（seek 已下发，回执仍 succeeded）
+        fakeMedia.sessionList = listOf(biliSession())
+        fakeMedia.unreadableOnSeek = true
+        newModule(rootEdition = false).registerTo(dispatcher)
+        val t = handleAndTerminal(
+            request("device.media.seek_to", mapOf("position_ms" to 300_000L)),
+        )
+        assertEquals("succeeded", t["status"])
+        assertEquals(listOf("seek:tv.danmaku.bili:300000"), fakeMedia.calls.toList())
+        @Suppress("UNCHECKED_CAST")
+        val v = (t["result"] as Map<String, Any?>)["verification"] as Map<String, Any?>
+        assertEquals("skipped", v["status"])
+    }
+
+    @Test
+    fun `media seek_to fails when seek dispatch fails`() {
+        fakeMedia.sessionList = listOf(biliSession())
+        fakeMedia.seekFails = true
+        newModule(rootEdition = false).registerTo(dispatcher)
+        val t = handleAndTerminal(
+            request("device.media.seek_to", mapOf("position_ms" to 300_000L)),
+        )
+        assertEquals("failed", t["status"])
+        assertEquals("internal", t["error_code"])
     }
 
     @Test

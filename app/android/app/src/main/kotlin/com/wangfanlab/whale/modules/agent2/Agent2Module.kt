@@ -26,7 +26,7 @@ import java.util.concurrent.Executors
  *
  * 覆盖能力（§5.1/§5.3）：
  * - 两变体共有：device.tap / long_press / swipe / key / wait / input_text /
- *   observe / app.launch / app.list；
+ *   observe / app.launch / app.list / media.seek_to；
  * - 仅 root 变体（[CapabilityRegistry.isRootEdition] 门控，daily 构建不创建
  *   handler——分发器侧将 fail-closed 回 unavailable）：device.shell /
  *   file.read / file.write / file.list / logcat。
@@ -74,7 +74,8 @@ class Agent2Module(
         accessibility.foregroundPackage()
             ?: if (rootEdition) ForegroundProbe.rootShell(shell).current() else null
     },
-    /** 媒体会话直控（#96）：无 root 变体的 device.key 媒体键后端 + 观察媒体状态段。 */
+    /** 媒体会话直控（#96 + seek_to 增项）：无 root 变体的 device.key 媒体键后端、
+     * 观察媒体状态段、device.media.seek_to 执行底座（两变体共用）。 */
     private val mediaControl: MediaSessionControl = AndroidMediaSessionControl(context),
     /** 屏幕尺寸（坐标屏内校验用；缺省取应用资源 displayMetrics）。 */
     private val screenSize: () -> Pair<Int, Int> = {
@@ -305,6 +306,8 @@ class Agent2Module(
         dispatcher.registerHandler(CapabilitiesV2.DEVICE_OBSERVE, ::handleObserve)
         dispatcher.registerHandler(CapabilitiesV2.DEVICE_APP_LAUNCH, ::handleAppLaunch)
         dispatcher.registerHandler(CapabilitiesV2.DEVICE_APP_LIST, ::handleSimpleShell)
+        // §5.1 增项：media seek 无 input keyevent 等价物，两变体同走 MediaSession 直控
+        dispatcher.registerHandler(CapabilitiesV2.DEVICE_MEDIA_SEEK_TO, ::handleMediaSeekTo)
         if (rootEdition) {
             // Root 版独有（§5.2：daily 不注册、不声明）
             dispatcher.registerHandler(CapabilitiesV2.DEVICE_SHELL, ::handleShell)
@@ -703,6 +706,109 @@ class Agent2Module(
         return ReceiptDispatcherV2.ActionOutcome(
             ReceiptStatus.SUCCEEDED,
             resultSummary = "已发送${actionDesc}到 ${target.packageName}（MediaSession）",
+            providerRef = "media_session",
+            verificationStatus = vStatus,
+            verificationSummary = vSummary,
+        )
+    }
+
+    /**
+     * device.media.seek_to（§5.1 增项，联署契约）：MediaSession 直控 seek。
+     * 无 root 等价物（input 无 seek 键码），两变体同走 [MediaSessionControl]；
+     * 无活跃会话/未授权/歧义 → 诚实 unavailable/failed，绝不盲拖；
+     * ratio 在 duration 未知时诚实 failed（不估算）；seek 后有界轮询读回
+     * media.position_ms 做 ±2s 确定性验证（passed/failed/skipped 如实，
+     * skipped 只在媒体段不可读时）。
+     */
+    private fun handleMediaSeekTo(
+        request: ReceiptDispatcherV2.ActionRequestV2,
+        reply: (ReceiptDispatcherV2.ActionOutcome) -> Unit,
+    ) {
+        val once = OnceReply(reply)
+        executor.execute {
+            val (w, h) = screenSize()
+            when (val d = Agent2Logic.validate(
+                CapabilitiesV2.DEVICE_MEDIA_SEEK_TO, request.arguments, w, h,
+            )) {
+                is Agent2Logic.Decision.Reject -> once.reply(fail(d.errorCode, d.reason))
+                is Agent2Logic.Decision.Run -> {
+                    if (estopActive()) {
+                        once.reply(fail(ErrorCodeV2.ESTOP_ACTIVE, "紧急停止激活，拒绝执行"))
+                        return@execute
+                    }
+                    once.reply(runMediaSeekTo(d.args))
+                }
+            }
+        }
+    }
+
+    private fun runMediaSeekTo(args: Map<String, Any?>): ReceiptDispatcherV2.ActionOutcome {
+        val sessions = mediaControl.sessions()
+            ?: return fail(ErrorCodeV2.UNAVAILABLE, "媒体会话不可读（需授予通知使用权并绑定监听服务）")
+        val foreground = try {
+            foregroundProbe.current()
+        } catch (t: Throwable) {
+            null
+        }
+        val target = MediaSessionLogic.selectTarget(sessions, foreground)
+            ?: return fail(
+                ErrorCodeV2.UNAVAILABLE,
+                if (sessions.isEmpty()) {
+                    "无活跃媒体会话"
+                } else {
+                    "活跃媒体会话 ${sessions.size} 个且无法安全选定（前台 $foreground）"
+                },
+            )
+        // position_ms 优先；ratio 依赖 duration 可得性（审注①），未知即诚实失败（审注③）
+        val targetMs = MediaSessionLogic.resolveSeekTargetMs(
+            payloadLongV2(args, "position_ms"),
+            (args["ratio"] as? Number)?.toDouble(),
+            target.durationMs,
+        ) ?: return fail(
+            ErrorCodeV2.UNAVAILABLE,
+            "ratio 定位需要媒体总长，会话未报告 duration（${target.packageName}）",
+        )
+        if (!mediaControl.seekTo(target.packageName, targetMs)) {
+            return fail(ErrorCodeV2.INTERNAL, "seek 指令下发失败（${target.packageName}）")
+        }
+        // verify（§5.1 增项口径）：有界轮询读回 media.position_ms，落点在目标
+        // ±2s 内 passed；可读但始终偏出 failed；不可读 skipped（与观察 media
+        // 段闭环自洽，审注②）。轮询窗口/次数与 play_pause 翻转验证同款。
+        val deadline = clock() + MEDIA_VERIFY_WINDOW_MS
+        var attempts = 0
+        var lastPosition: Long? = null
+        while (clock() < deadline && attempts < MEDIA_VERIFY_MAX_POLLS) {
+            attempts++
+            val pos = try {
+                mediaControl.sessions()
+                    ?.firstOrNull { it.packageName == target.packageName }?.positionMs
+            } catch (t: Throwable) {
+                null
+            }
+            if (pos != null && pos >= 0) {
+                lastPosition = pos
+                if (kotlin.math.abs(pos - targetMs) <= MediaSessionLogic.SEEK_VERIFY_TOLERANCE_MS) {
+                    break
+                }
+            }
+            try {
+                Thread.sleep(300)
+            } catch (_: InterruptedException) {
+                break
+            }
+        }
+        val (vStatus, vSummary) = when {
+            lastPosition == null ->
+                "skipped" to "媒体段不可读，seek 落点不可判定"
+            kotlin.math.abs(lastPosition!! - targetMs) <= MediaSessionLogic.SEEK_VERIFY_TOLERANCE_MS ->
+                "passed" to "落点 position_ms=${lastPosition} 在目标 ${targetMs}ms ±2s 内"
+            else ->
+                "failed" to "落点 position_ms=${lastPosition} 偏出目标 ${targetMs}ms ±2s"
+        }
+        return ReceiptDispatcherV2.ActionOutcome(
+            ReceiptStatus.SUCCEEDED,
+            // 回执摘要挂落点 position_ms（ratio 入参亦换算为落点毫秒呈现）
+            resultSummary = "已 seek 到 position_ms=$targetMs（${target.packageName}，MediaSession）",
             providerRef = "media_session",
             verificationStatus = vStatus,
             verificationSummary = vSummary,

@@ -114,13 +114,14 @@
               "device.stop",
               "device.output.read",
               "device.screen.record",
-              "device.status"
+              "device.status",
+              "device.media.seek_to"
             ],
             "description": "能力名（§5.1 全协议唯一枚举）"
           },
           "description": "申请的能力范围",
           "minItems": 1,
-          "maxItems": 32,
+          "maxItems": 33,
           "uniqueItems": true
         },
         "expires_at": {

@@ -104,7 +104,8 @@
             "device.file.list",
             "device.logcat",
             "device.stop",
-            "device.screen.record"
+            "device.screen.record",
+            "device.media.seek_to"
           ],
           "description": "请求调用的能力（§5.3 动作子集），端侧校验白名单"
         },
@@ -169,12 +170,13 @@
               "device.file.list",
               "device.logcat",
               "device.stop",
-              "device.screen.record"
+              "device.screen.record",
+              "device.media.seek_to"
             ]
           },
           "description": "本次授权的能力上限集合，端侧校验 scope",
           "minItems": 1,
-          "maxItems": 32,
+          "maxItems": 33,
           "uniqueItems": true
         },
         "approval_ref": {

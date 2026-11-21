@@ -37,6 +37,9 @@ object CapabilityRegistry {
         "device.status",
         "device.stop",
         "device.output.read",
+        // §5.1 增项（2026-11-21 联署定稿）：MediaSession 直控 seek，走既有
+        // 通知监听授权（同 #96 媒体键），两变体共有、不依赖 root。
+        "device.media.seek_to",
     )
 
     /** Root 版独有能力（daily 构建不注册）。 */

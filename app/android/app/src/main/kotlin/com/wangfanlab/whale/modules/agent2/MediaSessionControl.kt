@@ -54,6 +54,12 @@ interface MediaSessionControl {
 
     /** 对指定包名会话上一曲；false=下发失败。 */
     fun skipToPrevious(packageName: String): Boolean
+
+    /**
+     * 对指定包名会话 seek 到绝对位置（device.media.seek_to 契约增项，
+     * transportControls.seekTo 直控）；false=下发失败。
+     */
+    fun seekTo(packageName: String, positionMs: Long): Boolean
 }
 
 /** 目标选择与摘要（纯逻辑，无 Android 依赖，可单测）。 */
@@ -65,6 +71,9 @@ object MediaSessionLogic {
     const val STATE_BUFFERING = 6
 
     const val TITLE_MAX_CHARS = 40
+
+    /** device.media.seek_to 的 verify 容差（§5.1 增项：落点 ±2s 内 passed）。 */
+    const val SEEK_VERIFY_TOLERANCE_MS = 2_000L
 
     fun isPlaying(state: Int): Boolean = state == STATE_PLAYING
 
@@ -92,6 +101,19 @@ object MediaSessionLogic {
         }
         sessions.singleOrNull { isPlaying(it.state) }?.let { return it }
         return sessions.singleOrNull()
+    }
+
+    /**
+     * seek 目标解算（device.media.seek_to 契约增项，纯逻辑可单测）：
+     * position_ms 优先（审注①：ratio 依赖 duration 可得性）；ratio 换算
+     * ratio×duration 并夹取到 [0,duration]；duration 未知（≤0）返回 null，
+     * 交由调用方诚实 failed——绝不估算（审注③）。
+     */
+    fun resolveSeekTargetMs(positionMs: Long?, ratio: Double?, durationMs: Long): Long? {
+        positionMs?.let { return it }
+        val r = ratio ?: return null
+        if (durationMs <= 0) return null
+        return (r * durationMs).toLong().coerceIn(0L, durationMs)
     }
 
     /** 紧凑摘要（入观察负载/回执摘要）：「播放中 83/613s tv.danmaku.bili 标题」。 */
@@ -159,6 +181,11 @@ class AndroidMediaSessionControl(context: Context) : MediaSessionControl {
     override fun skipToPrevious(packageName: String): Boolean =
         controllerFor(packageName)?.let { ctrl ->
             runCatching { ctrl.transportControls.skipToPrevious() }.isSuccess
+        } == true
+
+    override fun seekTo(packageName: String, positionMs: Long): Boolean =
+        controllerFor(packageName)?.let { ctrl ->
+            runCatching { ctrl.transportControls.seekTo(positionMs) }.isSuccess
         } == true
 
     /** 按包名现取控制器（两次快照间会话可能生灭，现取现用）。 */
