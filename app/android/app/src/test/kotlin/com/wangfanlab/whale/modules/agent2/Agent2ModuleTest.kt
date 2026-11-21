@@ -92,7 +92,43 @@ class Agent2ModuleTest {
         }
     }
 
+    /** 假媒体会话控制（#96）：状态由用例编排，toggle 翻转播放态。 */
+    private class FakeMediaSessionControl : MediaSessionControl {
+        /** null = 不可读（未授权）；否则为会话表（可空表=无活跃会话）。 */
+        var sessionList: List<MediaSessionControl.SessionInfo>? = emptyList()
+        val calls = ConcurrentLinkedQueue<String>()
+
+        override fun available(): Boolean = sessionList != null
+        override fun sessions(): List<MediaSessionControl.SessionInfo>? = sessionList
+
+        override fun togglePlayPause(packageName: String): Boolean {
+            calls.add("play_pause:$packageName")
+            val list = sessionList ?: return false
+            sessionList = list.map {
+                if (it.packageName != packageName) it else it.copy(
+                    state = if (MediaSessionLogic.isPlaying(it.state)) {
+                        MediaSessionLogic.STATE_PAUSED
+                    } else {
+                        MediaSessionLogic.STATE_PLAYING
+                    },
+                )
+            }
+            return true
+        }
+
+        override fun skipToNext(packageName: String): Boolean {
+            calls.add("next:$packageName")
+            return sessionList?.any { it.packageName == packageName } == true
+        }
+
+        override fun skipToPrevious(packageName: String): Boolean {
+            calls.add("prev:$packageName")
+            return sessionList?.any { it.packageName == packageName } == true
+        }
+    }
+
     private lateinit var fakeAccessibility: FakeAccessibility
+    private lateinit var fakeMedia: FakeMediaSessionControl
     private lateinit var fakeShell: FakeShell
     private var estop = false
     private var uiTree: String? = null
@@ -110,6 +146,7 @@ class Agent2ModuleTest {
         uiTreeSource = Agent2Module.UiTreeSource { uiTree },
         screenshotSource = Agent2Module.ScreenshotSource { shotFile },
         foregroundProbe = Agent2Module.ForegroundProbe { foreground },
+        mediaControl = fakeMedia,
         screenSize = { screenSize },
         estop = { estop },
         rootEdition = rootEdition,
@@ -127,6 +164,7 @@ class Agent2ModuleTest {
         now = 1_794_052_800_000L
         fakeShell = FakeShell()
         fakeAccessibility = FakeAccessibility()
+        fakeMedia = FakeMediaSessionControl()
         // 默认 root 可用（ensureRoot 探测 `id` → uid=0）
         fakeShell.route("id", AgentShell.Result(0, "uid=0(root) gid=0(root)", "", false))
         estop = false
@@ -270,6 +308,131 @@ class Agent2ModuleTest {
         assertEquals("failed", t["status"])
         assertEquals("invalid_message", t["error_code"])
         assertTrue(fakeShell.calls.isEmpty())
+    }
+
+    // ------------------------------------------------------------- #96 媒体键
+
+    @Test
+    fun `media play_pause on non-root goes through media session with flip verification`() {
+        fakeMedia.sessionList = listOf(
+            MediaSessionControl.SessionInfo(
+                "tv.danmaku.bili", MediaSessionLogic.STATE_PLAYING, 83_000L, 613_000L, "示例视频",
+            ),
+        )
+        foreground = "tv.danmaku.bili"
+        newModule(rootEdition = false).registerTo(dispatcher)
+        val t = handleAndTerminal(request("device.key", mapOf("key" to "MEDIA_PLAY_PAUSE")))
+        assertEquals("succeeded", t["status"])
+        assertEquals(listOf("play_pause:tv.danmaku.bili"), fakeMedia.calls.toList())
+        @Suppress("UNCHECKED_CAST")
+        val result = t["result"] as Map<String, Any?>
+        @Suppress("UNCHECKED_CAST")
+        val v = result["verification"] as Map<String, Any?>
+        assertEquals("passed", v["status"])
+        assertTrue(v["summary"].toString().contains("已暂停"))
+        assertTrue("非 root 媒体键不得走 shell", fakeShell.calls.isEmpty())
+    }
+
+    @Test
+    fun `media key fails closed when no active session`() {
+        fakeMedia.sessionList = emptyList()
+        newModule(rootEdition = false).registerTo(dispatcher)
+        val t = handleAndTerminal(request("device.key", mapOf("key" to "MEDIA_PLAY_PAUSE")))
+        assertEquals("failed", t["status"])
+        assertEquals("unavailable", t["error_code"])
+        assertTrue(fakeMedia.calls.isEmpty())
+        assertTrue(fakeShell.calls.isEmpty())
+    }
+
+    @Test
+    fun `media key fails closed when sessions unreadable`() {
+        fakeMedia.sessionList = null // 通知监听未授权
+        newModule(rootEdition = false).registerTo(dispatcher)
+        val t = handleAndTerminal(request("device.key", mapOf("key" to "MEDIA_PLAY_PAUSE")))
+        assertEquals("failed", t["status"])
+        assertEquals("unavailable", t["error_code"])
+        assertTrue(fakeMedia.calls.isEmpty())
+    }
+
+    @Test
+    fun `media key fails closed on ambiguous sessions`() {
+        // 两个播放中会话且前台不在其中：歧义，拒绝盲控
+        fakeMedia.sessionList = listOf(
+            MediaSessionControl.SessionInfo(
+                "com.a", MediaSessionLogic.STATE_PLAYING, 0L, -1L, "",
+            ),
+            MediaSessionControl.SessionInfo(
+                "com.b", MediaSessionLogic.STATE_PLAYING, 0L, -1L, "",
+            ),
+        )
+        foreground = "com.c"
+        newModule(rootEdition = false).registerTo(dispatcher)
+        val t = handleAndTerminal(request("device.key", mapOf("key" to "MEDIA_PLAY_PAUSE")))
+        assertEquals("failed", t["status"])
+        assertEquals("unavailable", t["error_code"])
+        assertTrue(fakeMedia.calls.isEmpty())
+    }
+
+    @Test
+    fun `media key on root edition still uses input keyevent`() {
+        fakeMedia.sessionList = listOf(
+            MediaSessionControl.SessionInfo(
+                "tv.danmaku.bili", MediaSessionLogic.STATE_PLAYING, 0L, -1L, "",
+            ),
+        )
+        newModule(rootEdition = true).registerTo(dispatcher)
+        val t = handleAndTerminal(request("device.key", mapOf("key" to "MEDIA_PLAY_PAUSE")))
+        assertEquals("succeeded", t["status"])
+        assertEquals("input keyevent MEDIA_PLAY_PAUSE", fakeShell.calls.last().command)
+        assertTrue("root 通道不触碰 MediaSession", fakeMedia.calls.isEmpty())
+    }
+
+    @Test
+    fun `observe payload carries media block when session active`() {
+        fakeMedia.sessionList = listOf(
+            MediaSessionControl.SessionInfo(
+                "tv.danmaku.bili", MediaSessionLogic.STATE_PLAYING, 83_000L, 613_000L, "示例视频",
+            ),
+        )
+        foreground = "tv.danmaku.bili"
+        newModule().registerTo(dispatcher)
+        val obsId = observeOnce(treeA)
+        val json = File(context.filesDir, "agent2/ui/$obsId.json").readText()
+        assertTrue(json.contains("\"media\":{"))
+        assertTrue(json.contains("\"playing\":true"))
+        assertTrue(json.contains("\"position_ms\":83000"))
+        assertTrue(json.contains("\"package\":\"tv.danmaku.bili\""))
+    }
+
+    @Test
+    fun `observe payload has no media block when session list empty`() {
+        fakeMedia.sessionList = emptyList()
+        newModule().registerTo(dispatcher)
+        val obsId = observeOnce(treeA)
+        val json = File(context.filesDir, "agent2/ui/$obsId.json").readText()
+        assertFalse(json.contains("\"media\""))
+    }
+
+    @Test
+    fun `observe tolerates media read failure`() {
+        fakeMedia.sessionList = null
+        newModule().registerTo(dispatcher)
+        val obsId = observeOnce(treeA)
+        val json = File(context.filesDir, "agent2/ui/$obsId.json").readText()
+        assertFalse(json.contains("\"media\""))
+    }
+
+    @Test
+    fun `swipe x1 y1 aliases execute with canonical coordinates`() {
+        newModule().registerTo(dispatcher)
+        val t = handleAndTerminal(
+            request(
+                "device.swipe",
+                mapOf("x1" to 60L, "y1" to 1988L, "x2" to 540L, "y2" to 1988L),
+            ),
+        )
+        assertEquals("succeeded", t["status"])
+        assertEquals("input swipe 60 1988 540 1988 300", fakeShell.calls.last().command)
     }
 
     @Test
