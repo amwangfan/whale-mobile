@@ -87,7 +87,19 @@ device.app.install         device.app.uninstall
 device.shell               device.file.read           device.file.write
 device.file.list           device.logcat              device.stop
 device.output.read         device.screen.record       device.status
+device.media.seek_to
 ```
+
+**契约增项 `device.media.seek_to`（2026-11-21 联署闭环定稿，逐字照录，与 whale-core 镜像一致）**：
+
+- §5.1 增项 device.media.seek_to
+- arguments: {position_ms: int≥0} 或 {ratio: float∈[0,1]}（二选一，position_ms 优先）
+- 执行：经 transportControls.seekTo（复用 PR#63 MediaSessionControl/AndroidMediaSessionControl 直控活跃媒体会话路径）
+- 回执摘要挂落点 position_ms；scope 表加同名项
+- verify 口径：观察 media.position_ms 落在目标 ±2s 内 passed
+- 审注①position_ms 优先因 ratio 依赖 duration 可得性；②verify 与观察 media 段闭环自洽；③无活跃会话/未授权/歧义→unavailable|failed 诚实终态（沿用 fail-closed，绝不盲拖）；ratio 在 duration 未知时 honest failed 不估算。
+
+子集归属（§5.3）：`device.media.seek_to` 为动作能力（action.request 可用，伴随 scope/审批语义），**不是** sensor.query 查询操作。
 
 ### 5.2 DeviceDescriptor / DeviceCapabilities（objects/device-descriptor）
 

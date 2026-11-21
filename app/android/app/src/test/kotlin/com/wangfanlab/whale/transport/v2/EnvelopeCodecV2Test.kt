@@ -178,13 +178,16 @@ class EnvelopeCodecV2Test {
 
     @Test
     fun `capability and error code tables match protocol section 5 and 15`() {
-        // §5.1 共 32 项；与文档表格逐项核对（变更协议时本测试须同步失败）。
-        assertEquals(32, CapabilitiesV2.ALL.size)
+        // §5.1 共 33 项；与文档表格逐项核对（变更协议时本测试须同步失败）。
+        assertEquals(33, CapabilitiesV2.ALL.size)
         assertTrue(CapabilitiesV2.ALL.contains("device.shell"))
         assertTrue(CapabilitiesV2.ALL.contains("device.status"))
         assertTrue(CapabilitiesV2.ALL.contains("glasses.card.dismiss"))
-        // §5.3：action 子集 = 全部除 device.output.read（31 项）
-        assertEquals(31, CapabilitiesV2.ACTION_SUBSET.size)
+        // §5.1 增项（2026-11-21 联署定稿）
+        assertTrue(CapabilitiesV2.ALL.contains("device.media.seek_to"))
+        // §5.3：action 子集 = 全部除 device.output.read（32 项）
+        assertEquals(32, CapabilitiesV2.ACTION_SUBSET.size)
+        assertTrue(CapabilitiesV2.ACTION_SUBSET.contains("device.media.seek_to"))
         assertFalse(CapabilitiesV2.ACTION_SUBSET.contains("device.output.read"))
         // §5.3：sensor.query 子集恰好 7 项
         assertEquals(7, CapabilitiesV2.SENSOR_QUERY_SUBSET.size)

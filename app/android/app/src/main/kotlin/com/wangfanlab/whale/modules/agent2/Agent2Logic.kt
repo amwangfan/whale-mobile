@@ -2,6 +2,7 @@ package com.wangfanlab.whale.modules.agent2
 
 import android.util.Xml
 import com.wangfanlab.whale.transport.v2.ErrorCodeV2
+import com.wangfanlab.whale.transport.v2.payloadLongV2
 import org.xmlpull.v1.XmlPullParser
 import java.io.StringReader
 import java.security.MessageDigest
@@ -265,6 +266,27 @@ object Agent2Logic {
             "device.app.list" -> {
                 val filter = (a["filter"] as? String) ?: "all"
                 if (filter !in APP_LIST_FILTERS) return reject("filter 非法: $filter")
+            }
+            "device.media.seek_to" -> {
+                // §5.1 增项契约：{position_ms: int≥0} 或 {ratio: float∈[0,1]}，
+                // 二选一、position_ms 优先；两者皆缺拒绝。字段存在即验值域
+                // （被优先规则旁路的字段也不许携带垃圾值）。
+                val hasPos = a.containsKey("position_ms")
+                val hasRatio = a.containsKey("ratio")
+                if (!hasPos && !hasRatio) {
+                    return reject("缺少 position_ms/ratio（二选一，position_ms 优先）")
+                }
+                if (hasPos) {
+                    // 契约 int≥0：非整数（如 83.5）拒绝而非静默截断
+                    val v = payloadLongV2(a, "position_ms")
+                        ?: return reject("position_ms 必须为整数")
+                    if (v < 0) return reject("position_ms 越界: $v")
+                }
+                if (hasRatio) {
+                    val r = (a["ratio"] as? Number)?.toDouble()
+                        ?: return reject("ratio 必须为数值")
+                    if (r.isNaN() || r < 0.0 || r > 1.0) return reject("ratio 越界: $r")
+                }
             }
             "device.shell" -> {
                 val cmd = (a["command"] as? String) ?: (a["script"] as? String) ?: ""

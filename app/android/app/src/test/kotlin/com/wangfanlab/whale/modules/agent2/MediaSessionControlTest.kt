@@ -74,6 +74,33 @@ class MediaSessionControlTest {
         assertNull(MediaSessionLogic.selectTarget(listOf(c, d), null))
     }
 
+    // ---- seek 目标解算（§5.1 增项 device.media.seek_to）-------------------
+
+    @Test
+    fun `resolve seek target prefers position_ms over ratio`() {
+        // 审注①：position_ms 优先（ratio 依赖 duration 可得性）
+        assertEquals(83_000L, MediaSessionLogic.resolveSeekTargetMs(83_000L, 0.5, 613_000L))
+    }
+
+    @Test
+    fun `resolve seek target converts ratio with duration`() {
+        assertEquals(306_500L, MediaSessionLogic.resolveSeekTargetMs(null, 0.5, 613_000L))
+        assertEquals(0L, MediaSessionLogic.resolveSeekTargetMs(null, 0.0, 613_000L))
+        assertEquals(613_000L, MediaSessionLogic.resolveSeekTargetMs(null, 1.0, 613_000L))
+    }
+
+    @Test
+    fun `resolve seek target ratio without duration is honest null`() {
+        // 审注③：duration 未知（会话未报告，-1/0）→ null，调用方诚实 failed，绝不估算
+        assertNull(MediaSessionLogic.resolveSeekTargetMs(null, 0.5, -1L))
+        assertNull(MediaSessionLogic.resolveSeekTargetMs(null, 0.5, 0L))
+    }
+
+    @Test
+    fun `resolve seek target needs at least one argument`() {
+        assertNull(MediaSessionLogic.resolveSeekTargetMs(null, null, 613_000L))
+    }
+
     // ---- state / summary ------------------------------------------------
 
     @Test

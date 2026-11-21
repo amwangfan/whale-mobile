@@ -60,7 +60,8 @@
         "device.file.list",
         "device.logcat",
         "device.stop",
-        "device.screen.record"
+        "device.screen.record",
+        "device.media.seek_to"
       ]
     },
     "summary": {

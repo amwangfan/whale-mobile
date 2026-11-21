@@ -164,7 +164,7 @@ object IdsV2 {
 
 /**
  * V2 能力命名空间——**与 contracts/v2 §5.1 逐字一致，变更须同步**。
- * （Kotlin 无法运行时读 schema，本集合为 §5.1 的逐字抄录，共 32 项。）
+ * （Kotlin 无法运行时读 schema，本集合为 §5.1 的逐字抄录，共 33 项。）
  */
 object CapabilitiesV2 {
     const val SCREEN_CONTEXT_READ = "screen.context.read"
@@ -200,7 +200,10 @@ object CapabilitiesV2 {
     const val DEVICE_SCREEN_RECORD = "device.screen.record"
     const val DEVICE_STATUS = "device.status"
 
-    /** §5.1 全量枚举（32 项，顺序与协议文档一致）。 */
+    /** §5.1 增项（2026-11-21 联署定稿）：媒体 seek（MediaSession 直控，两变体共有）。 */
+    const val DEVICE_MEDIA_SEEK_TO = "device.media.seek_to"
+
+    /** §5.1 全量枚举（33 项，顺序与协议文档一致）。 */
     val ALL: Set<String> = linkedSetOf(
         SCREEN_CONTEXT_READ, SCREEN_HISTORY_SEARCH, SCREEN_EVIDENCE_READ,
         SCREEN_LIVE_SUBSCRIBE,
@@ -214,6 +217,7 @@ object CapabilitiesV2 {
         DEVICE_SHELL, DEVICE_FILE_READ, DEVICE_FILE_WRITE,
         DEVICE_FILE_LIST, DEVICE_LOGCAT, DEVICE_STOP,
         DEVICE_OUTPUT_READ, DEVICE_SCREEN_RECORD, DEVICE_STATUS,
+        DEVICE_MEDIA_SEEK_TO,
     )
 
     /** §5.3：action.request.capability 可用子集 = 全部除 device.output.read（仅 sensor.query）。 */

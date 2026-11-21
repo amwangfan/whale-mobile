@@ -79,7 +79,9 @@ class HelloAssemblyV2Test {
         @Suppress("UNCHECKED_CAST")
         val caps = payload["capabilities"] as List<String>
         assertTrue(caps.containsAll(rootOnlyCaps.toList()))
-        assertEquals(32, caps.size)
+        // §5.1 全量枚举 33 项（含 2026-11-21 增项 device.media.seek_to）
+        assertEquals(33, caps.size)
+        assertTrue(caps.contains("device.media.seek_to"))
     }
 
     @Test

@@ -284,6 +284,107 @@ class Agent2LogicTest {
             ).errorCode)
     }
 
+    // ------------------------------------------------------------- device.media.seek_to（§5.1 增项）
+
+    @Test
+    fun `media seek_to accepts position_ms or ratio`() {
+        assertTrue(
+            Agent2Logic.validate("device.media.seek_to", mapOf("position_ms" to 83_000L), W, H)
+                is Agent2Logic.Decision.Run,
+        )
+        assertTrue(
+            Agent2Logic.validate("device.media.seek_to", mapOf("ratio" to 0.5), W, H)
+                is Agent2Logic.Decision.Run,
+        )
+        // 边界值：position_ms=0、ratio=0/1 皆合法（int≥0 / float∈[0,1] 闭区间）
+        assertTrue(
+            Agent2Logic.validate("device.media.seek_to", mapOf("position_ms" to 0L), W, H)
+                is Agent2Logic.Decision.Run,
+        )
+        assertTrue(
+            Agent2Logic.validate("device.media.seek_to", mapOf("ratio" to 0.0), W, H)
+                is Agent2Logic.Decision.Run,
+        )
+        assertTrue(
+            Agent2Logic.validate("device.media.seek_to", mapOf("ratio" to 1.0), W, H)
+                is Agent2Logic.Decision.Run,
+        )
+        // 二选一：两者同现合法（执行侧 position_ms 优先）
+        assertTrue(
+            Agent2Logic.validate(
+                "device.media.seek_to", mapOf("position_ms" to 1000L, "ratio" to 0.5), W, H,
+            ) is Agent2Logic.Decision.Run,
+        )
+    }
+
+    @Test
+    fun `media seek_to requires one of position_ms or ratio`() {
+        assertEquals(
+            "invalid_message",
+            rejectOf(Agent2Logic.validate("device.media.seek_to", emptyMap(), W, H)).errorCode,
+        )
+        assertEquals(
+            "invalid_message",
+            rejectOf(
+                Agent2Logic.validate("device.media.seek_to", mapOf("foo" to 1L), W, H),
+            ).errorCode,
+        )
+    }
+
+    @Test
+    fun `media seek_to position_ms must be non negative integer`() {
+        assertEquals(
+            "invalid_message",
+            rejectOf(
+                Agent2Logic.validate("device.media.seek_to", mapOf("position_ms" to -1L), W, H),
+            ).errorCode,
+        )
+        // 契约 int≥0：小数拒绝而非静默截断
+        assertEquals(
+            "invalid_message",
+            rejectOf(
+                Agent2Logic.validate("device.media.seek_to", mapOf("position_ms" to 83.5), W, H),
+            ).errorCode,
+        )
+        assertEquals(
+            "invalid_message",
+            rejectOf(
+                Agent2Logic.validate("device.media.seek_to", mapOf("position_ms" to "83000"), W, H),
+            ).errorCode,
+        )
+    }
+
+    @Test
+    fun `media seek_to ratio bounds enforced`() {
+        assertEquals(
+            "invalid_message",
+            rejectOf(
+                Agent2Logic.validate("device.media.seek_to", mapOf("ratio" to -0.1), W, H),
+            ).errorCode,
+        )
+        assertEquals(
+            "invalid_message",
+            rejectOf(
+                Agent2Logic.validate("device.media.seek_to", mapOf("ratio" to 1.5), W, H),
+            ).errorCode,
+        )
+        assertEquals(
+            "invalid_message",
+            rejectOf(
+                Agent2Logic.validate("device.media.seek_to", mapOf("ratio" to "half"), W, H),
+            ).errorCode,
+        )
+        // 同现时旁路字段也须值域合法（不携带垃圾值入场）
+        assertEquals(
+            "invalid_message",
+            rejectOf(
+                Agent2Logic.validate(
+                    "device.media.seek_to", mapOf("position_ms" to 1000L, "ratio" to 2.0), W, H,
+                ),
+            ).errorCode,
+        )
+    }
+
     @Test
     fun `shell command validation`() {
         assertTrue(

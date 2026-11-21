@@ -105,7 +105,8 @@
               "device.stop",
               "device.output.read",
               "device.screen.record",
-              "device.status"
+              "device.status",
+              "device.media.seek_to"
             ],
             "description": "能力名（§5.1 全协议唯一枚举）"
           },
