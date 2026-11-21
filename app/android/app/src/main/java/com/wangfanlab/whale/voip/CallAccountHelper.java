@@ -151,14 +151,29 @@ public final class CallAccountHelper {
         tm.addNewIncomingCall(h, extras);
     }
 
-    /** managed 来电承接账户是否已被用户/adb 启用（决定路A是否生效）。 */
+    /**
+     * managed 来电承接账户是否已启用（决定路A是否生效）。
+     * 2026-11-21 magic8 实证：getPhoneAccount(handle).isEnabled() 在本机读不回注册表
+     * 里明明 [[X]] 的 enabled 态（MagicOS 怪癖）→ 改以 getCallCapablePhoneAccounts()
+     * 迭代判在列（call-capable = 已启用且可呼叫，与本判定语义一致）。
+     */
     public static boolean isInManagedEnabled(Context ctx) {
+        return isAccountEnabled(ctx, handleInManaged(ctx));
+    }
+
+    /** 账户在 call-capable 列表即在位且已启用（MagicOS getPhoneAccount.isEnabled 读不回的规避）。 */
+    private static boolean isAccountEnabled(Context ctx, PhoneAccountHandle handle) {
         try {
             TelecomManager tm = (TelecomManager) ctx.getSystemService(Context.TELECOM_SERVICE);
-            PhoneAccount acct = tm.getPhoneAccount(handleInManaged(ctx));
-            return acct != null && acct.isEnabled();
+            List<PhoneAccountHandle> capable = tm.getCallCapablePhoneAccounts();
+            if (capable != null) {
+                for (PhoneAccountHandle h : capable) {
+                    if (h != null && handle.getId().equals(h.getId())) return true;
+                }
+            }
+            return false;
         } catch (Throwable t) {
-            Log.w(TAG, "isInManagedEnabled check failed, assume disabled", t);
+            Log.w(TAG, "isAccountEnabled check failed, assume disabled", t);
             return false;
         }
     }
@@ -183,8 +198,7 @@ public final class CallAccountHelper {
         ensureRegistered(ctx);
         TelecomManager tm = (TelecomManager) ctx.getSystemService(Context.TELECOM_SERVICE);
         PhoneAccountHandle preferred = handleAiOut(ctx);
-        PhoneAccount acct = tm.getPhoneAccount(preferred);
-        boolean useProvider = acct != null && acct.isEnabled();
+        boolean useProvider = isAccountEnabled(ctx, preferred);   /* 同 magic8 读不回怪癖的规避（与 isInManagedEnabled 同径） */
         PhoneAccountHandle h = useProvider ? preferred : handle(ctx);
         Uri addr = Uri.fromParts("tel", "1", null);
         Bundle extras = new Bundle();
