@@ -57,12 +57,19 @@ object Agent2Logic {
     val APP_LIST_FILTERS = setOf("all", "third_party", "system")
     val FILE_ENCODINGS = setOf("text", "base64")
 
+    /**
+     * 媒体控制键（#96）：core 决策白名单早已放行 media_play_pause，本端不放行
+     * 构成契约不对称（GSI 播放控制阶段实证）。root 通道 `input keyevent` 直接
+     * 可用；无 root 时经 [MediaSessionControl]（通知监听授权）直控媒体会话。
+     */
+    val MEDIA_KEYS = setOf("MEDIA_PLAY_PAUSE", "MEDIA_NEXT", "MEDIA_PREVIOUS")
+
     /** device.key 允许的标准键名（沿用 v1 白名单；input keyevent 接受裸名）。 */
     val ALLOWED_KEYS = setOf(
         "HOME", "BACK", "ENTER", "TAB", "DPAD_UP", "DPAD_DOWN", "DPAD_LEFT",
         "DPAD_RIGHT", "DPAD_CENTER", "VOLUME_UP", "VOLUME_DOWN", "MUTE",
         "POWER", "WAKEUP", "SLEEP", "APP_SWITCH", "SEARCH",
-    )
+    ) + MEDIA_KEYS
 
     // ------------------------------------------------------------- 判定结果
 
@@ -196,7 +203,8 @@ object Agent2Logic {
         screenW: Int,
         screenH: Int,
     ): Decision {
-        val a = args ?: return reject("缺少 arguments")
+        val raw = args ?: return reject("缺少 arguments")
+        val a = normalizeAliases(capability, raw)
         when (capability) {
             "device.tap", "device.long_press" -> {
                 // 两选一：坐标对 或 element_id 引用（observation_id 由分发器强制必填，§8）
@@ -308,6 +316,22 @@ object Agent2Logic {
             else -> return Decision.Reject(ErrorCodeV2.CAPABILITY_UNKNOWN, "未知能力: $capability")
         }
         return Decision.Run(a)
+    }
+
+    /**
+     * 参数别名归一化（#96）：device.swipe 收 x1/y1 作为 x/y（起点）别名——
+     * 模型对 swipe 有强 x1/y1 先验（高负载 GSI 验收单阶段 9 连「缺少/非法坐标: x」
+     * 实证），core adb 通道已同款兼容（a7e6803），本端 embedded 主路补齐对齐。
+     * 规范键存在时别名不覆盖；返回新 Map，不改入参。
+     */
+    fun normalizeAliases(capability: String, args: Map<String, Any?>): Map<String, Any?> {
+        if (capability != "device.swipe") return args
+        if (!args.containsKey("x1") && !args.containsKey("y1")) return args
+        val out = LinkedHashMap<String, Any?>(args.size + 2)
+        args.forEach { (k, v) -> out[k] = v }
+        if (!args.containsKey("x")) args["x1"]?.let { out["x"] = it }
+        if (!args.containsKey("y")) args["y1"]?.let { out["y"] = it }
+        return out
     }
 
     private fun reject(reason: String) = Decision.Reject(ErrorCodeV2.INVALID_MESSAGE, reason)

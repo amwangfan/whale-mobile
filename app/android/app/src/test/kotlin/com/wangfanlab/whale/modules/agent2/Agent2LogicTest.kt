@@ -157,6 +157,59 @@ class Agent2LogicTest {
     }
 
     @Test
+    fun `media keys whitelisted`() {
+        // #96：core 决策白名单早已放行 media_play_pause，本端对齐放行
+        // （root 走 input keyevent；无 root 走 MediaSessionControl 直控）
+        for (key in listOf("MEDIA_PLAY_PAUSE", "MEDIA_NEXT", "MEDIA_PREVIOUS")) {
+            assertTrue(
+                key,
+                Agent2Logic.validate("device.key", mapOf("key" to key), W, H)
+                    is Agent2Logic.Decision.Run,
+            )
+        }
+        // 小写形态经 trim+uppercase 归一同样放行
+        assertTrue(
+            Agent2Logic.validate("device.key", mapOf("key" to "media_play_pause"), W, H)
+                is Agent2Logic.Decision.Run,
+        )
+    }
+
+    @Test
+    fun `swipe x1 y1 aliases normalized to x y`() {
+        // #96：模型对 swipe 有强 x1/y1 先验（GSI 验收单阶段 9 连拒实证），
+        // 别名归一与 core adb 通道 a7e6803 对齐
+        val d = Agent2Logic.validate(
+            "device.swipe",
+            mapOf("x1" to 60L, "y1" to 1988L, "x2" to 540L, "y2" to 1988L), W, H,
+        )
+        assertTrue(d is Agent2Logic.Decision.Run)
+        val args = (d as Agent2Logic.Decision.Run).args
+        assertEquals(60L, (args["x"] as Number).toLong())
+        assertEquals(1988L, (args["y"] as Number).toLong())
+        // 规范键存在时别名不覆盖
+        val d2 = Agent2Logic.validate(
+            "device.swipe",
+            mapOf("x" to 10L, "y" to 20L, "x1" to 60L, "y1" to 1988L,
+                "x2" to 100L, "y2" to 900L), W, H,
+        )
+        val args2 = (d2 as Agent2Logic.Decision.Run).args
+        assertEquals(10L, (args2["x"] as Number).toLong())
+        assertEquals(20L, (args2["y"] as Number).toLong())
+        // 入参不被改写
+        val orig = mapOf<String, Any?>("x1" to 60L, "y1" to 1988L, "x2" to 540L, "y2" to 1988L)
+        Agent2Logic.validate("device.swipe", orig, W, H)
+        assertFalse(orig.containsKey("x"))
+        // 别名值非法仍拒绝（归一后走同一坐标校验）
+        assertEquals("invalid_message",
+            rejectOf(
+                Agent2Logic.validate(
+                    "device.swipe",
+                    mapOf("x1" to -5L, "y1" to 100L, "x2" to 200L, "y2" to 300L), W, H,
+                ),
+            ).errorCode)
+    }
+
+    @Test
     fun `input text rules`() {
         assertTrue(
             Agent2Logic.validate("device.input_text", mapOf("text" to "你好 world"), W, H)

@@ -74,6 +74,8 @@ class Agent2Module(
         accessibility.foregroundPackage()
             ?: if (rootEdition) ForegroundProbe.rootShell(shell).current() else null
     },
+    /** 媒体会话直控（#96）：无 root 变体的 device.key 媒体键后端 + 观察媒体状态段。 */
+    private val mediaControl: MediaSessionControl = AndroidMediaSessionControl(context),
     /** 屏幕尺寸（坐标屏内校验用；缺省取应用资源 displayMetrics）。 */
     private val screenSize: () -> Pair<Int, Int> = {
         val m = context.applicationContext.resources.displayMetrics
@@ -516,13 +518,13 @@ class Agent2Module(
                         once.reply(fail(ErrorCodeV2.ESTOP_ACTIVE, "紧急停止激活，拒绝执行"))
                         return@execute
                     }
-                    val (point, err) = resolvePoint(args, request.observationId)
+                    val (point, err) = resolvePoint(d.args, request.observationId)
                     if (err != null) {
                         once.reply(err)
                         return@execute
                     }
                     if (rootEdition && ensureRoot()) {
-                        val cmd = Agent2Logic.buildCommand(request.capability, args, point!!)
+                        val cmd = Agent2Logic.buildCommand(request.capability, d.args, point!!)
                         if (cmd == null) {
                             once.reply(fail(ErrorCodeV2.INVALID_MESSAGE, "命令拼装失败"))
                             return@execute
@@ -558,7 +560,20 @@ class Agent2Module(
                         once.reply(fail(ErrorCodeV2.ESTOP_ACTIVE, "紧急停止激活，拒绝执行"))
                         return@execute
                     }
-                    if (!rootEdition || !ensureRoot()) {
+                    val useRoot = rootEdition && ensureRoot()
+                    // #96：无 root 时媒体键经 MediaSession 直控（通知监听授权），
+                    // 替代无障碍后端的「该按键需 Root/ADB 后端」死路。
+                    val mediaKey = if (request.capability == CapabilitiesV2.DEVICE_KEY) {
+                        (d.args["key"] as? String)?.trim()?.uppercase()
+                            ?.takeIf { it in Agent2Logic.MEDIA_KEYS }
+                    } else {
+                        null
+                    }
+                    if (!useRoot && mediaKey != null) {
+                        once.reply(runMediaKey(mediaKey))
+                        return@execute
+                    }
+                    if (!useRoot) {
                         if (request.capability == CapabilitiesV2.DEVICE_APP_LIST) {
                             val filter = (request.arguments["filter"] as? String) ?: "all"
                             val pkgs = accessibility.listLaunchableApps(filter)
@@ -590,7 +605,7 @@ class Agent2Module(
                         }
                         return@execute
                     }
-                    val cmd = Agent2Logic.buildCommand(request.capability, request.arguments, null)
+                    val cmd = Agent2Logic.buildCommand(request.capability, d.args, null)
                     if (cmd == null) {
                         once.reply(fail(ErrorCodeV2.INVALID_MESSAGE, "命令拼装失败"))
                         return@execute
@@ -610,6 +625,88 @@ class Agent2Module(
                 }
             }
         }
+    }
+
+    /**
+     * device.key 媒体键的无 root 执行路径（#96）：MediaSession 直控 + 状态翻转验证。
+     * play_pause 做确定性验证（有界轮询状态翻转）；next/previous 语义不定
+     * （曲目表边界/应用策略），诚实 skipped。目标歧义/无会话/未授权全部如实失败。
+     */
+    private fun runMediaKey(keyName: String): ReceiptDispatcherV2.ActionOutcome {
+        val sessions = mediaControl.sessions()
+            ?: return fail(ErrorCodeV2.UNAVAILABLE, "媒体会话不可读（需授予通知使用权并绑定监听服务）")
+        val foreground = try {
+            foregroundProbe.current()
+        } catch (t: Throwable) {
+            null
+        }
+        val target = MediaSessionLogic.selectTarget(sessions, foreground)
+            ?: return fail(
+                ErrorCodeV2.UNAVAILABLE,
+                if (sessions.isEmpty()) {
+                    "无活跃媒体会话"
+                } else {
+                    "活跃媒体会话 ${sessions.size} 个且无法安全选定（前台 $foreground）"
+                },
+            )
+        val beforeState = target.state
+        val ok = when (keyName) {
+            "MEDIA_PLAY_PAUSE" -> mediaControl.togglePlayPause(target.packageName)
+            "MEDIA_NEXT" -> mediaControl.skipToNext(target.packageName)
+            else -> mediaControl.skipToPrevious(target.packageName)
+        }
+        if (!ok) {
+            return fail(ErrorCodeV2.INTERNAL, "媒体控制指令下发失败（${target.packageName}）")
+        }
+        val actionDesc = when (keyName) {
+            "MEDIA_PLAY_PAUSE" -> "播放/暂停"
+            "MEDIA_NEXT" -> "下一曲"
+            else -> "上一曲"
+        }
+        if (keyName != "MEDIA_PLAY_PAUSE") {
+            return ReceiptDispatcherV2.ActionOutcome(
+                ReceiptStatus.SUCCEEDED,
+                resultSummary = "已发送${actionDesc}到 ${target.packageName}（MediaSession）",
+                providerRef = "media_session",
+                verificationStatus = "skipped",
+                verificationSummary = "切曲结果语义由应用自定，不做状态核对",
+            )
+        }
+        // 确定性验证：有界轮询（≤1.5s 且 ≤5 次，冻结时钟也不可死循环）目标会话
+        // 状态翻转；不可读则 skipped（诚实）
+        val deadline = clock() + MEDIA_VERIFY_WINDOW_MS
+        var attempts = 0
+        var afterState: Int? = null
+        while (clock() < deadline && attempts < MEDIA_VERIFY_MAX_POLLS) {
+            attempts++
+            afterState = try {
+                mediaControl.sessions()
+                    ?.firstOrNull { it.packageName == target.packageName }?.state
+            } catch (t: Throwable) {
+                null
+            }
+            if (afterState != null && afterState != beforeState) break
+            try {
+                Thread.sleep(300)
+            } catch (_: InterruptedException) {
+                break
+            }
+        }
+        val (vStatus, vSummary) = when {
+            afterState == null -> "skipped" to "状态不可判定"
+            afterState != beforeState ->
+                "passed" to "${MediaSessionLogic.stateName(beforeState)}→" +
+                    MediaSessionLogic.stateName(afterState)
+            else ->
+                "failed" to "状态未变化（仍 ${MediaSessionLogic.stateName(beforeState)}）"
+        }
+        return ReceiptDispatcherV2.ActionOutcome(
+            ReceiptStatus.SUCCEEDED,
+            resultSummary = "已发送${actionDesc}到 ${target.packageName}（MediaSession）",
+            providerRef = "media_session",
+            verificationStatus = vStatus,
+            verificationSummary = vSummary,
+        )
     }
 
     /** device.wait：本地等待（estop 轮询熔断；不消耗 shell）。 */
@@ -769,6 +866,20 @@ class Agent2Module(
             val truncated = all.size > options.maxElements
             val elements = all.take(options.maxElements)
             val obsId = IdsV2.newObservationId()
+            // #96：活跃媒体会话状态进观察（播放/暂停对 UI 树不可见——播放器控制条
+            // 自隐后树里无任何播放状态信号；媒体会话是唯一确定性来源）。
+            // 失败不拖垮观察：读取异常按无媒体段处理。
+            val mediaInfo = try {
+                mediaControl.sessions()?.let { list ->
+                    MediaSessionLogic.selectTarget(
+                        list,
+                        runCatching { foregroundProbe.current() }.getOrNull(),
+                    )
+                }
+            } catch (t: Throwable) {
+                Log.w(TAG, "媒体会话读取失败（观察继续）: ${t.message}")
+                null
+            }
             // 截图（失败不拖垮观察：摘要注明，verification 仍 skipped）
             val shotFile = try {
                 if (options.screenshot) screenshotSource.takeShot() else null
@@ -782,7 +893,9 @@ class Agent2Module(
             // 观察负载落盘（§8：负载本体经 output_ref 拉取，不占 256KiB 帧预算）
             val obsFile = File(uiDir, "$obsId.json")
             try {
-                obsFile.writeText(buildObservationJson(obsId, elements, truncated, shotRef, w, h))
+                obsFile.writeText(
+                    buildObservationJson(obsId, elements, truncated, shotRef, w, h, mediaInfo),
+                )
             } catch (t: Throwable) {
                 once.reply(fail(ErrorCodeV2.INTERNAL, "观察落盘失败: ${t.message}"))
                 return@execute
@@ -793,7 +906,9 @@ class Agent2Module(
                     resultSummary = Agent2Logic.truncateSummary(
                         "观察 $obsId：${elements.size} 个元素" +
                             (if (truncated) "（超上限截断，原 ${all.size}）" else "") +
-                            (if (shotRef != null) "，截图 $shotRef" else "，截图不可用"),
+                            (if (shotRef != null) "，截图 $shotRef" else "，截图不可用") +
+                            (mediaInfo?.let { "，媒体:" + MediaSessionLogic.summaryOf(it) }
+                                ?: ""),
                     ),
                     outputRef = "agent:ui:$obsId",
                     verificationStatus = "skipped",
@@ -836,6 +951,8 @@ class Agent2Module(
         shotRef: String?,
         screenW: Int,
         screenH: Int,
+        /** #96：活跃媒体会话（可空）；附加字段，Core 解析宽容未知键。 */
+        media: MediaSessionControl.SessionInfo? = null,
     ): String {
         val sb = StringBuilder()
         sb.append('{')
@@ -844,6 +961,16 @@ class Agent2Module(
         // 前台应用（§5 device.status 语义进观察；模型需要知道自己在哪里）
         val fg = runCatching { foregroundProbe.current() }.getOrNull()
         sb.append("\"foreground_package\":").append(jsonStr(fg ?: "")).append(',')
+        if (media != null) {
+            sb.append("\"media\":{")
+            sb.append("\"package\":").append(jsonStr(media.packageName)).append(',')
+            sb.append("\"state\":").append(jsonStr(MediaSessionLogic.stateName(media.state))).append(',')
+            sb.append("\"playing\":").append(MediaSessionLogic.isPlaying(media.state)).append(',')
+            sb.append("\"position_ms\":").append(media.positionMs).append(',')
+            sb.append("\"duration_ms\":").append(media.durationMs).append(',')
+            sb.append("\"title\":").append(jsonStr(media.title))
+            sb.append("},")
+        }
         sb.append("\"screen\":{\"w\":").append(screenW).append(",\"h\":").append(screenH).append("},")
         if (shotRef != null) sb.append("\"screenshot_ref\":\"").append(shotRef).append("\",")
         sb.append("\"truncated\":").append(truncated).append(',')
@@ -1076,6 +1203,10 @@ class Agent2Module(
     companion object {
         private const val TAG = "WhaleAgent2"
         const val OBS_CACHE_CAP = 4
+
+        /** 媒体键状态翻转验证窗口与轮询上限（#96）。 */
+        private const val MEDIA_VERIFY_WINDOW_MS = 1_500L
+        private const val MEDIA_VERIFY_MAX_POLLS = 5
 
         /** UI 树全量读取上限（2MB；防 dump 异常膨胀撑爆内存）。 */
         const val MAX_UI_TREE_CHARS = 2 * 1024 * 1024
