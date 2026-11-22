@@ -11,6 +11,7 @@ import com.wangfanlab.whale.modules.notifications.NotificationModule
 import com.wangfanlab.whale.modules.safeaction.SafeActionModule
 import com.wangfanlab.whale.modules.voip.VoipModule
 import com.wangfanlab.whale.runtime.PauseFlags
+import com.wangfanlab.whale.runtime.v2.BackgroundKeepalive
 import com.wangfanlab.whale.runtime.v2.NodeRuntimeV2
 import com.wangfanlab.whale.runtime.v2.NodeServiceV2
 import com.wangfanlab.whale.transport.BridgeDataQueries
@@ -353,6 +354,16 @@ class TransportBridgeV2(
 
                 "isBgServiceEnabled" ->
                     result.success(TransportBridge.isBgServiceEnabled(appContext))
+
+                // ---- 后台保活引导（案二持久化：iaware 冻网实证，检测+引导不代办） ----
+
+                "keepaliveStatus" -> result.success(BackgroundKeepalive.status(appContext))
+
+                "requestBatteryExemption" ->
+                    result.success(BackgroundKeepalive.requestBatteryExemption(appContext))
+
+                "openLaunchManagement" ->
+                    result.success(BackgroundKeepalive.openLaunchManagement(appContext))
 
                 else -> result.notImplemented()
             }

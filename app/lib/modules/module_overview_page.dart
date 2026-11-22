@@ -49,6 +49,7 @@ class _ModuleOverviewPageState extends State<ModuleOverviewPage> {
   TransportState _state = TransportState.disconnected;
   String _deviceId = '…';
   String _publicKeyHex = '';
+  Map<String, dynamic>? _keepaliveStatus;
   String? _sessionId;
   Map<String, dynamic> _queue = const {};
   final List<String> _log = <String>[];
@@ -907,6 +908,8 @@ class _ModuleOverviewPageState extends State<ModuleOverviewPage> {
               _buildSafeActionCard(),
               _buildScreenMemoCard(),
               const SizedBox(height: 8),
+              _buildKeepaliveCard(),
+              const SizedBox(height: 8),
               _connectTestSection(online),
               _logSection(),
             ],
@@ -1490,6 +1493,84 @@ class _ModuleOverviewPageState extends State<ModuleOverviewPage> {
               ?.copyWith(color: Theme.of(context).colorScheme.error),
         ),
       );
+
+  /// 后台保活引导卡（案二持久化：iaware 冻网实证，检测+引导不代办用户授权）。
+  Widget _buildKeepaliveCard() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.battery_saver,
+                    color: Theme.of(context).colorScheme.primary),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text('后台保活',
+                      style:
+                          TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              '息屏/后台保持云端通道在线。荣耀机型需把本 App 的应用启动管理改为「手动管理」'
+              '（允许自启动/关联启动/后台活动）并加入电池优化白名单，否则系统会冻结后台联网。',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.outline,
+                  ),
+            ),
+            const SizedBox(height: 8),
+            if (_keepaliveStatus != null) ...[
+              _row('电池优化白名单',
+                  _keepaliveStatus!['battery_exempt'] == true ? '已豁免' : '未豁免'),
+              _row('前台服务',
+                  _keepaliveStatus!['foreground_service'] == true ? '运行中' : '未运行'),
+              const SizedBox(height: 8),
+            ],
+            Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              children: [
+                OutlinedButton(
+                  onPressed: _refreshKeepalive,
+                  child: const Text('检测状态'),
+                ),
+                OutlinedButton(
+                  onPressed: _requestBatteryExemption,
+                  child: const Text('电池优化白名单'),
+                ),
+                OutlinedButton(
+                  onPressed: _openLaunchManagement,
+                  child: const Text('应用启动管理'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _refreshKeepalive() async {
+    final s = await _transportV2.keepaliveStatus();
+    setState(() => _keepaliveStatus = s);
+  }
+
+  Future<void> _requestBatteryExemption() async {
+    await _transportV2.requestBatteryExemption();
+    await Future<void>.delayed(const Duration(seconds: 1));
+    await _refreshKeepalive();
+  }
+
+  Future<void> _openLaunchManagement() async {
+    final ok = await _transportV2.openLaunchManagement();
+    if (!ok && mounted) {
+      _appendLog('未找到启动管理页，请手动到 设置→应用和服务→应用启动管理 找 Whale');
+    }
+  }
 
   /// 可折叠连接测试区（阶段一调试面板）。
   Widget _connectTestSection(bool online) {
