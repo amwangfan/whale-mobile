@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../models/schedule_entry.dart';
+import '../../chat/services/device_auth.dart';
 import '../../chat/services/device_config.dart';
 import 'schedule_repository.dart';
 
@@ -15,13 +16,19 @@ import 'schedule_repository.dart';
 /// ISO 串；候选裁决=POST /candidates {id,action:add|reject}；删除=DELETE /items
 /// body {id}（非路径分段）；无 ok 包裹（2xx 即成功，删除回 {"ok":bool}）。
 class HttpScheduleRepository implements ScheduleRepository {
-  HttpScheduleRepository({String? baseUrl, String? token, HttpClient? httpClient})
+  HttpScheduleRepository(
+      {String? baseUrl,
+      String? token,
+      HttpClient? httpClient,
+      DeviceAuth? auth})
       : _baseUrlOverride = baseUrl,
         _tokenOverride = token,
+        _auth = auth ?? DeviceAuth(),
         _http = httpClient ?? HttpClient();
 
   final String? _baseUrlOverride;
   final String? _tokenOverride;
+  final DeviceAuth _auth;
   final HttpClient _http;
 
   static const Duration timeout = Duration(seconds: 15);
@@ -42,6 +49,13 @@ class HttpScheduleRepository implements ScheduleRepository {
     final token = await _token;
     final uri =
         Uri.parse('$base$_prefix$path').replace(queryParameters: query);
+    // 设备签名四头（契约 §11；Bearer 保留不动）。签名载荷 path=线上路径含 query。
+    final Map<String, String> signed;
+    try {
+      signed = await _auth.headers(method, DeviceAuth.pathWithQuery(uri));
+    } on Exception catch (e) {
+      throw ScheduleApiException('sign_error', '$e');
+    }
     final HttpClientRequest req;
     final HttpClientResponse res;
     try {
@@ -50,6 +64,7 @@ class HttpScheduleRepository implements ScheduleRepository {
       if (token.isNotEmpty) {
         req.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
       }
+      signed.forEach((k, v) => req.headers.set(k, v));
       if (body != null) {
         req.headers.set(
             HttpHeaders.contentTypeHeader, 'application/json; charset=utf-8');

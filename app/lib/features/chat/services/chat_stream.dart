@@ -4,6 +4,7 @@ import 'dart:io';
 
 import '../models/attachment.dart';
 import 'chat_api.dart';
+import 'device_auth.dart';
 import 'device_config.dart';
 
 /// 聊天流式事件（规划 §5.5 词汇表 + Core mobile_chat.chat_stream_v2 实际帧）。
@@ -211,13 +212,19 @@ Stream<Map<String, dynamic>> parseSseJson(Stream<List<int>> bytes) async* {
 /// 断线语义（规划 §5.7 + 任务约束）：连接在收到 done/error 前关闭 →
 /// 补发本地合成 `aborted` 事件，由控制器把该轮标记失败；**不重发请求**。
 class ChatStreamClient {
-  ChatStreamClient({String? baseUrl, String? token, HttpClient? httpClient})
+  ChatStreamClient(
+      {String? baseUrl,
+      String? token,
+      HttpClient? httpClient,
+      DeviceAuth? auth})
       : _baseUrlOverride = baseUrl,
         _tokenOverride = token,
+        _auth = auth ?? DeviceAuth(),
         _http = httpClient ?? HttpClient();
 
   final String? _baseUrlOverride;
   final String? _tokenOverride;
+  final DeviceAuth _auth;
   final HttpClient _http;
 
   /// 发起流式回复。请求体：
@@ -272,6 +279,13 @@ class ChatStreamClient {
     final base = _baseUrlOverride ?? await DeviceConfig.baseUrl();
     final token = _tokenOverride ?? await DeviceConfig.apiToken();
     final uri = Uri.parse('$base/api/v2/chat/stream');
+    // 设备签名四头（契约 §11；Bearer 保留不动）。签名失败显式可见，不降级。
+    final Map<String, String> signed;
+    try {
+      signed = await _auth.headers('POST', DeviceAuth.pathWithQuery(uri));
+    } on Exception catch (e) {
+      throw ChatStreamException('sign_error', '$e');
+    }
     final HttpClientRequest req;
     try {
       req = await _http.postUrl(uri).timeout(ChatApi.timeout);
@@ -281,6 +295,7 @@ class ChatStreamClient {
       if (token.isNotEmpty) {
         req.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
       }
+      signed.forEach((k, v) => req.headers.set(k, v));
       req.write(jsonEncode(<String, dynamic>{
         'conversation_id': conversationId,
         'client_message_id': clientMessageId,

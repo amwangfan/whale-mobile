@@ -209,6 +209,56 @@ class TransportBridgeV2Test {
         assertEquals("disconnected", state["state"])
     }
 
+    // ---- REST 设备签名（契约 §11：载荷 device_id\nts\nnonce\nMETHOD\npath） ----
+
+    @Test
+    fun `signRequestV2 signs exact payload format`() {
+        val r = call(
+            "signRequestV2",
+            mapOf(
+                "method" to "GET",
+                "path" to "/api/v2/conversations?limit=20",
+                "timestamp" to "1767225600",
+                "nonce" to "nonce123",
+            ),
+        )
+        assertTrue("signRequestV2 应已实现", r.called && !r.notImplementedCalled)
+        assertNull(r.errorCode)
+        @Suppress("UNCHECKED_CAST")
+        val m = r.successValue as Map<String, Any?>
+        val deviceId = m["device_id"] as String
+        val signature = m["signature"] as String
+        // 同种子身份独立复签：载荷必须逐字节为 device_id\nts\nnonce\nMETHOD\npath（UTF-8）
+        val identity = DeviceIdentity(ByteArray(32) { (it + 7).toByte() })
+        assertEquals(identity.getDeviceId(), deviceId)
+        val payload = "$deviceId\n1767225600\nnonce123\nGET\n/api/v2/conversations?limit=20"
+        val expected = identity.sign(payload.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+        assertEquals(expected, signature)
+        assertEquals(128, signature.length)
+        assertTrue(signature.matches(Regex("[0-9a-f]{128}")))
+        // 扰动任一段（此处 METHOD 大小写）签名即不同——证明段确入载荷
+        val tampered = identity.sign(
+            "$deviceId\n1767225600\nnonce123\nget\n/api/v2/conversations?limit=20"
+                .toByteArray(Charsets.UTF_8),
+        ).joinToString("") { "%02x".format(it) }
+        assertFalse(tampered == signature)
+    }
+
+    @Test
+    fun `signRequestV2 missing args return bad_args`() {
+        val full = mapOf(
+            "method" to "GET",
+            "path" to "/api/v2/x",
+            "timestamp" to "1",
+            "nonce" to "n",
+        )
+        for (missing in full.keys) {
+            val r = call("signRequestV2", full - missing)
+            assertEquals("缺 $missing 应 bad_args", "bad_args", r.errorCode)
+        }
+    }
+
     @Test
     fun `unknown method returns notImplemented`() {
         val r = call("no.such.method")

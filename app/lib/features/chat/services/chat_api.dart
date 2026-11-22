@@ -5,6 +5,7 @@ import 'dart:io';
 import '../models/conversation.dart';
 import '../models/message.dart';
 import '../models/persona.dart';
+import 'device_auth.dart';
 import 'device_config.dart';
 
 /// Core REST 异常：显式可见，不静默重试。
@@ -36,13 +37,19 @@ class ChatApiException implements Exception {
 /// base_url / token 来自设备配置（DeviceConfig：SharedPreferences 覆盖
 /// dart-define 默认）。
 class ChatApi {
-  ChatApi({String? baseUrl, String? token, HttpClient? httpClient})
+  ChatApi(
+      {String? baseUrl,
+      String? token,
+      HttpClient? httpClient,
+      DeviceAuth? auth})
       : _baseUrlOverride = baseUrl,
         _tokenOverride = token,
+        _auth = auth ?? DeviceAuth(),
         _http = httpClient ?? HttpClient();
 
   final String? _baseUrlOverride;
   final String? _tokenOverride;
+  final DeviceAuth _auth;
   final HttpClient _http;
 
   static const Duration timeout = Duration(seconds: 15);
@@ -57,12 +64,23 @@ class ChatApi {
     return Uri.parse('$base$path').replace(queryParameters: query);
   }
 
-  Future<Map<String, String>> _headers() async {
+  /// 请求头：Accept + Bearer（保留不动）+ 设备签名四头（契约 §11，云端对
+  /// /api/v2/* fail-closed）。[pathWithQuery] 必须与实际请求线一致（含 query）。
+  Future<Map<String, String>> _headers(
+      String method, String pathWithQuery) async {
     final token = await _token;
+    final Map<String, String> signed;
+    try {
+      signed = await _auth.headers(method, pathWithQuery);
+    } on Exception catch (e) {
+      // 签名不可用（桥未就绪/身份缺失）显式失败，绝不静默降级为无签名请求
+      throw ChatApiException('sign_error', '$e');
+    }
     return <String, String>{
       HttpHeaders.acceptHeader: 'application/json',
       if (token.isNotEmpty)
         HttpHeaders.authorizationHeader: 'Bearer $token',
+      ...signed,
     };
   }
 
@@ -70,11 +88,12 @@ class ChatApi {
   Future<Map<String, dynamic>> _getJson(String path,
       [Map<String, String>? query]) async {
     final base = await _baseUrl;
-    final headers = await _headers();
+    final uri = _uri(base, path, query);
+    final headers = await _headers('GET', DeviceAuth.pathWithQuery(uri));
     final HttpClientRequest req;
     final HttpClientResponse res;
     try {
-      req = await _http.getUrl(_uri(base, path, query)).timeout(timeout);
+      req = await _http.getUrl(uri).timeout(timeout);
       headers.forEach((k, v) => req.headers.set(k, v));
       res = await req.close().timeout(timeout);
     } on Exception catch (e) {
@@ -88,12 +107,13 @@ class ChatApi {
   Future<Map<String, dynamic>> _sendJson(
       String method, String path, Object bodyObj) async {
     final base = await _baseUrl;
-    final headers = await _headers();
+    final uri = _uri(base, path);
+    final headers = await _headers(method, DeviceAuth.pathWithQuery(uri));
     final HttpClientRequest req;
     final HttpClientResponse res;
     try {
       req = await _http
-          .openUrl(method, _uri(base, path))
+          .openUrl(method, uri)
           .timeout(timeout);
       headers.forEach((k, v) => req.headers.set(k, v));
       req.headers
@@ -203,10 +223,11 @@ class ChatApi {
   /// DELETE /api/v2/attachments/{id}（幂等语义：已删 → 410）。
   Future<void> deleteAttachment(String attachmentId) async {
     final base = await _baseUrl;
-    final headers = await _headers();
+    final uri = _uri(base, '/api/v2/attachments/$attachmentId');
+    final headers = await _headers('DELETE', DeviceAuth.pathWithQuery(uri));
     try {
       final req = await _http
-          .openUrl('DELETE', _uri(base, '/api/v2/attachments/$attachmentId'))
+          .openUrl('DELETE', uri)
           .timeout(timeout);
       headers.forEach((k, v) => req.headers.set(k, v));
       final res = await req.close().timeout(timeout);
@@ -228,8 +249,20 @@ class ChatApi {
     return Uri.parse('$base/api/v2/attachments/$attachmentId');
   }
 
-  /// 附件下载鉴权头（cached_network_image 用）。
-  Future<Map<String, String>> authHeaders() => _headers();
+  /// 附件图片预览鉴权头（cached_network_image / Image.network 的静态头场景）。
+  ///
+  /// 仅含 Bearer：设备签名四头绑「method+path+ts+nonce」，而此处的调用方
+  /// （chat_page）对整页不同附件 id 复用一组静态头——签名既对不上逐 id 的
+  /// path，ts 也会过期。云端 fail-closed 后图片预览需改为按附件 id 即时签名
+  /// （另案）；此处保持原 Bearer 行为，不伪装已签。
+  Future<Map<String, String>> authHeaders() async {
+    final token = await _token;
+    return <String, String>{
+      HttpHeaders.acceptHeader: 'application/json',
+      if (token.isNotEmpty)
+        HttpHeaders.authorizationHeader: 'Bearer $token',
+    };
+  }
 
   void close() => _http.close();
 }

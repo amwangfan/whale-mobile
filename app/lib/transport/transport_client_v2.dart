@@ -239,4 +239,24 @@ class TransportClientV2 {
   /// 深链到应用启动管理页（Honor StartupAppControlActivity；回退应用详情页）。
   Future<bool> openLaunchManagement() async =>
       await _methods.invokeMethod<bool>('openLaunchManagement') ?? false;
+
+  /// REST 设备签名（契约 §11）：用设备 Ed25519 私钥签请求，返回
+  /// {device_id, signature(128-hex)}。载荷="device_id\nts\nnonce\nMETHOD\npath"。
+  Future<Map<String, dynamic>> signRequest({
+    required String method,
+    required String path,
+    required String timestamp,
+    required String nonce,
+  }) async {
+    final res = await _methods.invokeMethod<Map<dynamic, dynamic>>(
+      'signRequestV2',
+      <String, dynamic>{
+        'method': method,
+        'path': path,
+        'timestamp': timestamp,
+        'nonce': nonce,
+      },
+    );
+    return res?.cast<String, dynamic>() ?? const {};
+  }
 }
