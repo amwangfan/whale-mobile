@@ -48,47 +48,61 @@ public final class CallAccountHelper {
     public static void ensureRegistered(Context ctx) {
         TelecomManager tm = (TelecomManager) ctx.getSystemService(Context.TELECOM_SERVICE);
 
-        PhoneAccount self = new PhoneAccount.Builder(handle(ctx), "Nova 测试来电")
-                .setCapabilities(PhoneAccount.CAPABILITY_SELF_MANAGED)
-                .setSupportedUriSchemes(Collections.singletonList(PhoneAccount.SCHEME_TEL))
-                .setHighlightColor(Color.parseColor("#34A853"))
-                .setShortDescription("Nova VoIP Call (self-managed)")
-                .build();
-        tm.registerPhoneAccount(self);
-        Log.i(TAG, "PhoneAccount registered (self-managed): " + handle(ctx));
+        /* 2026-11-22 magic8 实证：registerPhoneAccount 重注册会把已启用的 managed 账户
+         * 重置回 DISABLED（13:09 managed=true→14:10 自发 false）。故「已注册即跳过」——
+         * 账户只在缺失时注册一次，启用态（cmd/用户管理）永不被重注册重置。 */
+        if (!isRegistered(tm, handle(ctx))) {
+            PhoneAccount self = new PhoneAccount.Builder(handle(ctx), "Nova 测试来电")
+                    .setCapabilities(PhoneAccount.CAPABILITY_SELF_MANAGED)
+                    .setSupportedUriSchemes(Collections.singletonList(PhoneAccount.SCHEME_TEL))
+                    .setHighlightColor(Color.parseColor("#34A853"))
+                    .setShortDescription("Nova VoIP Call (self-managed)")
+                    .build();
+            tm.registerPhoneAccount(self);
+            Log.i(TAG, "PhoneAccount registered (self-managed): " + handle(ctx));
+        }
 
-        // CallProvider: starts DISABLED on AOSP until user/root enables it.
-        // When enabled + placeCall uses this handle, Dialer InCallServiceImpl binds
-        // (true system call UI). Do NOT combine with CAPABILITY_SELF_MANAGED.
-        PhoneAccount out = new PhoneAccount.Builder(handleAiOut(ctx), "Nova AI")
-                .setCapabilities(PhoneAccount.CAPABILITY_CALL_PROVIDER)
-                .setSupportedUriSchemes(Collections.singletonList(PhoneAccount.SCHEME_TEL))
-                .setHighlightColor(Color.parseColor("#1A73E8"))
-                .setShortDescription("拨 1 打 AI（托管，系统通话界面）")
-                .build();
-        tm.registerPhoneAccount(out);
-        Log.i(TAG, "PhoneAccount registered (CallProvider nova-ai-out): " + handleAiOut(ctx)
-                + " — enable in Settings → Calling accounts, or root-enable");
+        if (!isRegistered(tm, handleAiOut(ctx))) {
+            // CallProvider: starts DISABLED on AOSP until user/root enables it.
+            // When enabled + placeCall uses this handle, Dialer InCallServiceImpl binds
+            // (true system call UI). Do NOT combine with CAPABILITY_SELF_MANAGED.
+            PhoneAccount out = new PhoneAccount.Builder(handleAiOut(ctx), "Nova AI")
+                    .setCapabilities(PhoneAccount.CAPABILITY_CALL_PROVIDER)
+                    .setSupportedUriSchemes(Collections.singletonList(PhoneAccount.SCHEME_TEL))
+                    .setHighlightColor(Color.parseColor("#1A73E8"))
+                    .setShortDescription("拨 1 打 AI（托管，系统通话界面）")
+                    .build();
+            tm.registerPhoneAccount(out);
+            Log.i(TAG, "PhoneAccount registered (CallProvider nova-ai-out): " + handleAiOut(ctx)
+                    + " — enable in Settings → Calling accounts, or root-enable");
+        }
 
-        // Managed(CallProvider) 来电承接账户（HANDOFF 路A）：初始 DISABLED，
-        // 启用后来电经它上报 → 系统原厂 InCallUI 渲染（荣耀动画+默认铃声），
-        // whale 不再自绘来电 UI。启用：Settings → 通话账户，或
-        // adb shell cmd telecom set-phone-account-enabled \
-        //   com.wangfanlab.whale/com.wangfanlab.whale.voip.FakeConnectionService whale-in-managed 0
-        PhoneAccount inManaged = new PhoneAccount.Builder(handleInManaged(ctx), "Whale 来电")
-                .setCapabilities(PhoneAccount.CAPABILITY_CALL_PROVIDER)
-                .setSupportedUriSchemes(Collections.singletonList(PhoneAccount.SCHEME_TEL))
-                .setHighlightColor(Color.parseColor("#1A73E8"))
-                .setShortDescription("Whale VoIP 来电（托管，原厂通话界面+系统铃声）")
-                .build();
-        tm.registerPhoneAccount(inManaged);
-        Log.i(TAG, "PhoneAccount registered (managed incoming whale-in-managed): "
-                + handleInManaged(ctx) + " — starts DISABLED until user/adb enables");
+        if (!isRegistered(tm, handleInManaged(ctx))) {
+            PhoneAccount inManaged = new PhoneAccount.Builder(handleInManaged(ctx), "Whale 来电")
+                    .setCapabilities(PhoneAccount.CAPABILITY_CALL_PROVIDER)
+                    .setSupportedUriSchemes(Collections.singletonList(PhoneAccount.SCHEME_TEL))
+                    .setHighlightColor(Color.parseColor("#1A73E8"))
+                    .setShortDescription("Whale VoIP 来电（托管，原厂通话界面+系统铃声）")
+                    .build();
+            tm.registerPhoneAccount(inManaged);
+            Log.i(TAG, "PhoneAccount registered (managed incoming whale-in-managed): "
+                    + handleInManaged(ctx) + " — starts DISABLED until user/adb enables");
+        }
 
         // Best-effort: make Nova AI the user-selected default outgoing account so
         // Dialer skips the multi-account picker. Needs MODIFY_PHONE_STATE (usually
         // only system/root XML patch); failure is non-fatal.
         preferAiOutgoingAccount(ctx);
+    }
+
+    /** 账户是否已注册（在册即跳过——重注册会把已启用态重置回 DISABLED）。 */
+    private static boolean isRegistered(TelecomManager tm, PhoneAccountHandle handle) {
+        try {
+            return tm.getPhoneAccount(handle) != null;
+        } catch (Throwable t) {
+            Log.w(TAG, "isRegistered check failed, assume not registered", t);
+            return false;
+        }
     }
 
     /**
