@@ -109,6 +109,7 @@ public class FakeConnectionService extends ConnectionService {
         // Stay RINGING until user answers — never setActive / AudioBridge here.
         conn.setRinging();
         sActive = conn;
+        DemoVoice.prepareAsync(this);   /* 案二：响铃时预生成演示语音，接通即播 */
         if (IncomingRoutePolicy.shouldPlayOwnRingtone(managedUi)) {
             RingToneHelper.start(this);
         }
@@ -339,6 +340,7 @@ public class FakeConnectionService extends ConnectionService {
             notifyCallState("active", this, null);
             FakeConnectionService svc = sInstance;
             if (svc != null) {
+                DemoVoice.playOnAnswer(svc);   /* 案二：接通后主人听预生成人声 */
                 AudioBridge.start(svc, bridgeHost, bridgePort);
             } else {
                 AudioBridge.start(bridgeHost, bridgePort);
@@ -370,6 +372,7 @@ public class FakeConnectionService extends ConnectionService {
         public void onReject() {
             FileLog.i("Connection.onReject");
             RingToneHelper.stop();
+            DemoVoice.stop();
             AudioBridge.stop();
             IncomingNotification.cancel(sInstance != null ? sInstance : null);
             setDisconnected(new DisconnectCause(DisconnectCause.REJECTED));
@@ -382,6 +385,7 @@ public class FakeConnectionService extends ConnectionService {
         public void onDisconnect() {
             FileLog.i("Connection.onDisconnect");
             RingToneHelper.stop();
+            DemoVoice.stop();
             AudioBridge.stop();
             IncomingNotification.cancel(sInstance != null ? sInstance : null);
             setDisconnected(new DisconnectCause(DisconnectCause.LOCAL));
