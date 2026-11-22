@@ -224,4 +224,19 @@ class TransportClientV2 {
         await _methods.invokeMethod<Map<dynamic, dynamic>>('getIdentityV2');
     return res?.cast<String, dynamic>() ?? const {};
   }
+
+  /// 后台保活状态（battery_exempt + foreground_service）。
+  Future<Map<String, dynamic>> keepaliveStatus() async {
+    final res =
+        await _methods.invokeMethod<Map<dynamic, dynamic>>('keepaliveStatus');
+    return res?.cast<String, dynamic>() ?? const {};
+  }
+
+  /// 弹系统「忽略电池优化」请求。
+  Future<bool> requestBatteryExemption() async =>
+      await _methods.invokeMethod<bool>('requestBatteryExemption') ?? false;
+
+  /// 深链到应用启动管理页（Honor StartupAppControlActivity；回退应用详情页）。
+  Future<bool> openLaunchManagement() async =>
+      await _methods.invokeMethod<bool>('openLaunchManagement') ?? false;
 }
