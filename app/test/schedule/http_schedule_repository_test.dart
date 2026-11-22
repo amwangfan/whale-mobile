@@ -3,23 +3,50 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:whale_mobile/features/chat/services/device_auth.dart';
 import 'package:whale_mobile/features/schedule/services/http_schedule_repository.dart';
 
+/// 假 DeviceAuth：不触 MethodChannel 直接回四头（真通道面见
+/// test/chat/device_auth_test.dart 的 mock channel 覆盖）。
+class _FakeDeviceAuth extends DeviceAuth {
+  @override
+  Future<Map<String, String>> headers(String method, String path) async =>
+      const <String, String>{
+        'X-Whale-Device-Id': 'dev_sched_test',
+        'X-Whale-Timestamp': '1767225600',
+        'X-Whale-Nonce': 'sched-test-nonce',
+        'X-Whale-Signature': 'cdcd',
+      };
+}
+
 /// HttpScheduleRepository × 本地 HttpServer：按云端契约形状自证（离线、零真机/零外发）。
+/// 设备签名四头（契约 §11）经注入的 _FakeDeviceAuth 供给并逐请求断言齐整。
 void main() {
   late HttpServer server;
   late HttpScheduleRepository repo;
   final requests = <String>[];
 
+  /// 每个请求的四头齐整性留痕（sig-ok / sig-MISSING）。
+  final sigMarks = <String>[];
+
   Future<void> start(Map<String, Object?> Function(String method, String path,
           Map<String, String> query, Object? body) handler) async {
     server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     repo = HttpScheduleRepository(
-        baseUrl: 'http://127.0.0.1:${server.port}', token: 'tk');
+        baseUrl: 'http://127.0.0.1:${server.port}',
+        token: 'tk',
+        auth: _FakeDeviceAuth());
     server.listen((req) async {
       final body = await utf8.decodeStream(req);
       final bodyObj = body.isEmpty ? null : jsonDecode(body);
       final path = req.uri.path;
+      final sigOk = const [
+        'x-whale-device-id',
+        'x-whale-timestamp',
+        'x-whale-nonce',
+        'x-whale-signature',
+      ].every((h) => req.headers.value(h) != null);
+      sigMarks.add('${req.method} $path ${sigOk ? 'sig-ok' : 'sig-MISSING'}');
       final out = handler(req.method, path, req.uri.queryParameters, bodyObj);
       if (out.isEmpty) {
         // 记录鉴权头与请求行后 404
@@ -103,6 +130,11 @@ void main() {
     expect(requests, contains('DELETE /v1/schedule/items {id: i1}'));
     // 删除 ok:false 如实抛错（不静默）
     expect(() => repo.deleteItem('ghost'), throwsA(isA<ScheduleApiException>()));
+
+    // 设备签名四头全接线（本测试先跑，sigMarks 仅含本测试请求）
+    expect(sigMarks, isNotEmpty);
+    expect(sigMarks.every((m) => m.endsWith('sig-ok')), isTrue,
+        reason: '存在缺四头的请求：$sigMarks');
   });
 
   test('source 上下文端点：query 与解析', () async {

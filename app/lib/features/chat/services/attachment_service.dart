@@ -8,6 +8,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../models/attachment.dart';
 import 'chat_api.dart';
+import 'device_auth.dart';
 import 'device_config.dart';
 
 /// 已选择待上传的本地附件。
@@ -32,13 +33,19 @@ class PickedAttachment {
 /// 上传：POST /api/v2/chat/attachments（multipart/form-data，字段 file +
 /// 可选 type 声明）→ 201 AttachmentRef（响应体即 schema 对象本体）。
 class AttachmentService {
-  AttachmentService({String? baseUrl, String? token, HttpClient? httpClient})
+  AttachmentService(
+      {String? baseUrl,
+      String? token,
+      HttpClient? httpClient,
+      DeviceAuth? auth})
       : _baseUrlOverride = baseUrl,
         _tokenOverride = token,
+        _auth = auth ?? DeviceAuth(),
         _http = httpClient ?? HttpClient();
 
   final String? _baseUrlOverride;
   final String? _tokenOverride;
+  final DeviceAuth _auth;
   final HttpClient _http;
   final ImagePicker _picker = ImagePicker();
 
@@ -49,6 +56,15 @@ class AttachmentService {
 
   Future<String> get _token async =>
       _tokenOverride ?? await DeviceConfig.apiToken();
+
+  /// 设备签名四头（契约 §11；Bearer 保留不动）。失败显式 sign_error，不降级。
+  Future<Map<String, String>> _signedHeaders(String method, Uri uri) async {
+    try {
+      return await _auth.headers(method, DeviceAuth.pathWithQuery(uri));
+    } on Exception catch (e) {
+      throw ChatApiException('sign_error', '$e');
+    }
+  }
 
   // ---------------------------------------------------------------- 选择
 
@@ -139,6 +155,7 @@ class AttachmentService {
     final base = await _baseUrl;
     final token = await _token;
     final uri = Uri.parse('$base/api/v2/chat/attachments');
+    final signed = await _signedHeaders('POST', uri);
     const boundary = '----whale-mobile-upload-boundary';
     final HttpClientRequest req;
     try {
@@ -148,6 +165,7 @@ class AttachmentService {
       if (token.isNotEmpty) {
         req.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
       }
+      signed.forEach((k, v) => req.headers.set(k, v));
     } on Exception catch (e) {
       throw ChatApiException('network_error', '$e');
     }
@@ -200,11 +218,13 @@ class AttachmentService {
     final base = await _baseUrl;
     final token = await _token;
     final uri = Uri.parse('$base/api/v2/attachments/$attachmentId');
+    final signed = await _signedHeaders('GET', uri);
     try {
       final req = await _http.getUrl(uri).timeout(timeout);
       if (token.isNotEmpty) {
         req.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
       }
+      signed.forEach((k, v) => req.headers.set(k, v));
       final res = await req.close().timeout(timeout);
       if (res.statusCode != 200) {
         throw ChatApiException('http_${res.statusCode}',

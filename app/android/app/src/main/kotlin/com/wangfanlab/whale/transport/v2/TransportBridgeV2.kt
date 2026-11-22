@@ -365,6 +365,30 @@ class TransportBridgeV2(
                 "openLaunchManagement" ->
                     result.success(BackgroundKeepalive.openLaunchManagement(appContext))
 
+                // ---- REST 设备签名（契约 §11：Ed25519 私钥签请求，私钥不出 Keystore） ----
+                // 入参 method/path/timestamp/nonce → 返回 device_id + signature(128-hex)。
+                "signRequestV2" -> {
+                    val method = call.argument<String>("method")
+                        ?: return result.error("bad_args", "missing method", null)
+                    val path = call.argument<String>("path")
+                        ?: return result.error("bad_args", "missing path", null)
+                    val ts = call.argument<String>("timestamp")
+                        ?: return result.error("bad_args", "missing timestamp", null)
+                    val nonce = call.argument<String>("nonce")
+                        ?: return result.error("bad_args", "missing nonce", null)
+                    val identity = runtime.identity
+                    val deviceId = identity.getDeviceId()
+                    // 签名载荷：device_id\nts\nnonce\nMETHOD\npath（UTF-8）
+                    val payload = "$deviceId\n$ts\n$nonce\n$method\n$path"
+                    val sig = identity.sign(payload.toByteArray(Charsets.UTF_8))
+                    result.success(
+                        mapOf(
+                            "device_id" to deviceId,
+                            "signature" to sig.joinToString("") { "%02x".format(it) },
+                        ),
+                    )
+                }
+
                 else -> result.notImplemented()
             }
         } catch (e: Exception) {
@@ -427,6 +451,7 @@ class TransportBridgeV2(
             "setModuleEnabled", "getModuleStates",
             "setAllPaused", "isAllPaused",
             "setBgServiceEnabled", "isBgServiceEnabled",
+            "signRequestV2",
         )
     }
 }
