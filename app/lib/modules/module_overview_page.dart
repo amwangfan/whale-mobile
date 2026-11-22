@@ -43,7 +43,7 @@ class _ModuleOverviewPageState extends State<ModuleOverviewPage> {
   /// （持久化成默认，不再手填尾网 IP；client 原样直连不拼路径，须全路径）。
   static const String _defaultGatewayUrl = String.fromEnvironment(
     'WM_GATEWAY_URL',
-    defaultValue: 'wss://rayneo.wangfanlab.com/api/v2/devices/ws',
+    defaultValue: 'wss://rayneo.wangfanlab.com:8443/api/v2/devices/ws',
   );
 
   TransportState _state = TransportState.disconnected;
