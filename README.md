@@ -1,101 +1,105 @@
 <div align="center">
 
-# whale-mobile
+# 鲸鱼 Whale · 手机端
+
+**让你的私人 AI 住进手机：随时聊天、及时提醒、记住你的日常，也能替你操作手机。**
 
 *身无彩凤双飞翼，心有灵犀一点通*
 
-鲸鱼在 Android 上的身体与感官：感知、通知、VoIP、眼镜交互和设备自主操作。
-
-[English](README_EN.md) · [架构](docs/ARCHITECTURE.md) · [AI 开发指南](docs/AI_DEVELOPMENT_GUIDE.md) · [当前进度](docs/STATUS.md)
+[下载 APK](https://github.com/amwangfan/whale-mobile/releases/latest) · [三步连接](#三步连接) · [能做什么](#它能做什么) · [隐私](#隐私) · [电脑端 whale-core](https://github.com/amwangfan/whale-core)
 
 </div>
 
-whale-mobile 是 [whale-core](https://github.com/amwangfan/whale-core) 的 Android 节点。手机负责采集、展示、实时交互和执行，Core 负责人格、记忆、任务决策和多设备编排。两侧通过 [contracts/device](contracts/device/) 中的协议通信（信封 1.x，路径去版本化）。
+## 这是什么
 
-目标不是把手机做成另一个聊天 App，而是让鲸鱼拥有可使用的感官和身体：能感知日常，给用户提示，也能在专用设备上自主观察和操作。普通手机与专用 Root 手机可以采用不同权限配置。
+**whale-mobile 是鲸鱼的 Android 手机端**，它需要配合电脑上的 [whale-core](https://github.com/amwangfan/whale-core)（鲸鱼的「大脑」）一起使用：
 
-## 当前能力
+- **它是前端（客户端）**：在手机上和鲸鱼聊天、处理它发来的审批和通知、查看日程，界面和电脑控制台用的是同一套对话、记忆和任务。
+- **它也是鲸鱼的「身体」**：在你授权的范围内，鲸鱼可以通过手机看到你的日常、给你推送提醒、在专用手机上自己点按和操作应用。
+- 手机只负责**感知、展示和执行**；思考、记忆和决定都在你自己的电脑上完成。手机与电脑之间用设备密钥加密认证，聊天记录和记忆不会上传到任何第三方服务器。
 
-| 模块 | 已实现的内容 | 使用情况 |
-| --- | --- | --- |
-| 后台与传输 | Application 级 NodeRuntime、前台服务、重启/网络恢复、WSS 身份校验（Ed25519 设备身份）、加密离线队列、动作回执 | Android 原生侧运行，不依赖 Flutter 页面常驻；回执区分 succeeded/failed/timeout/cancelled/unknown 五终态，幂等不重放 |
-| 日常感知 | ScreenMemo MCP、内置影子采集、ML Kit OCR、索引和数据源切换、通知监听 | 采集源与权限可在 App 中配置 |
-| 通知与交互 | 通知发布/撤销、多渠道、审批按钮、深链、暂停和回执 | 普通手机可用；回执 `displayed` 表示已提交 Android 通知系统，不等于用户已看到 |
-| 通话 | Android Telecom 来电和 PCM 音频桥、通话状态事件 | 需要麦克风等 Android 权限和已配置的桥 |
-| 眼镜 | 卡片校验、频控、敏感内容不上镜、可插拔卡片桥接口 | 需配置真实眼镜桥接通道；未连接眼镜时自动降级为手机通知 |
-| 手机操作（daily/root） | UI 树、截图、点击/滑动/输入、应用启动；Root 版另有 Shell、文件、日志、录屏等能力 | daily 需手动启用 Whale 无障碍服务；动作遵守 Core 配对 scopes 和紧急停止 |
+## 下载
 
-V2 设备握手、通知、查询/回执、Root 执行与 Bilibili 全链（打开→搜索→播放→回报标题）已在真机验证，详见 [STATUS](docs/STATUS.md)。眼镜日历、卡片与 followup 接入见 [Core 眼镜集成文档](https://github.com/amwangfan/whale-core/blob/main/docs/glasses-joint-integration.md)。
+到 **[Releases](https://github.com/amwangfan/whale-mobile/releases/latest)** 下载最新 APK，在手机上打开安装（如提示「未知来源」，按提示允许本次安装）：
 
-## 代码导航
-
-| 位置 | 用途 |
+| 安装包 | 适合 |
 | --- | --- |
-| [`app/lib/`](app/lib/) | Flutter 主界面、模块开关、权限引导、传输客户端 |
-| [`app/android/app/src/main/kotlin/com/wangfanlab/whale/runtime/v2/`](app/android/app/src/main/kotlin/com/wangfanlab/whale/runtime/v2/) | NodeRuntimeV2、NodeServiceV2、重启与后台恢复 |
-| [`app/android/app/src/main/kotlin/com/wangfanlab/whale/modules/`](app/android/app/src/main/kotlin/com/wangfanlab/whale/modules/) | agent / capture / glasses / notifications / notificationread / voip / safeaction 等实际原生实现 |
-| [`app/android/app/src/main/kotlin/com/wangfanlab/whale/transport/v2/`](app/android/app/src/main/kotlin/com/wangfanlab/whale/transport/v2/) | V2 设备身份、WSS、离线队列、Flutter 原生桥 |
-| [`contracts/device/`](contracts/device/) | 端云协议、Schema、示例（镜像自 Core） |
-| [`server/`](server/) | 服务端音频桥与联调工具，不是 Android APK 内容 |
-| [`docs/`](docs/) | 架构、真机验收、部署与集成记录 |
+| `whale-…-daily.apk` | **你平时用的手机**（绝大多数人选这个，无需 Root） |
+| `whale-…-root.apk` | 专门给鲸鱼使用的 Root 手机：拥有 Shell、文件、录屏等全部能力 |
 
-顶层 `modules/` 与 `transport/` 为独立模块的设计资料；APK 的实际装配以 `app/android/app/src/main/` 为准。
+需要 Android 8.0 或更新版本。
 
-## 运行与开发
+## 三步连接
 
-需要 Flutter、Android SDK 和 Java 开发环境。最简本地构建：
+1. 在电脑上打开鲸鱼控制台，进入 **设备 → 配对新设备**（第一次使用时设置引导里也有这一步）。如果提示「只允许本机访问」，先打开「**允许局域网里的手机连接**」并重启。
+2. 控制台会显示**手机连接地址**（如 `http://192.168.1.10:8080`）和一个 **6 位配对码**。
+3. 在手机 App 里打开 **我的 → Core 连接设置**，填入地址，输入配对码，点「**配对并连接**」。
+
+连接成功后，电脑控制台的「设备」页里就会出现这台手机，你可以在那里给它起名字、选择它是「**日常手机**」还是「**鲸鱼专用手机**」、设置要排除记录的应用。
+
+> 手机和电脑需要在同一个 Wi-Fi 下；不在家时，可以用 Tailscale 等组网工具把两者连到一起，再填组网地址即可。
+
+## 它能做什么
+
+App 底部有五个页面：
+
+| 页面 | 你可以 |
+| --- | --- |
+| **聊天** | 和鲸鱼对话（文字、图片、表情），回复实时流出；展开每条回复的「思维轨迹」，看它想起了哪些记忆、用了什么能力；需要你同意的操作直接在对话里批准或拒绝 |
+| **感知** | 浏览手机记录下来的屏幕时间线，搜索「我前天在哪个 App 看到过这个」，收藏重要的瞬间，管理占用空间 |
+| **通知** | 鲸鱼发给你的提醒、任务完成通知、待你处理的审批，都汇总在这里 |
+| **日程** | 鲸鱼从对话、眼镜和手机里整理出的日程，每一条都能追溯来源，确认或修改 |
+| **我的** | 连接设置、各功能模块的开关与权限 |
+
+此外还有：
+
+- **来电式提醒**：重要的事情，鲸鱼可以像打电话一样「呼叫」你，接听后直接语音对话（需要在电脑端配置语音桥，见 [server/audio-bridge](server/audio-bridge/)）。
+
+  <img src="modules/voip/docs/ui-refs/fake-incoming-after.png" width="240" alt="来电界面">
+
+- **智能眼镜**：连接雷鸟眼镜后，提醒和简短回复可以显示在镜片上，敏感内容不会上镜；没连眼镜时自动改为手机通知。
+- **替你操作手机**（需要你开启 Whale 无障碍服务，或使用 Root 版）：打开应用、点按、滑动、输入文字、返回主页——鲸鱼可以帮你完成「打开 B 站搜一个视频播放」这类事情。每个动作都有明确的结果回执，紧急情况下可以随时一键停止。
+
+在电脑控制台的「设备」页，可以实时看到手机的在线状态、电量、正在使用的应用，并直接下发动作：
+
+![控制台里的设备面板](https://raw.githubusercontent.com/amwangfan/whale-core/main/docs/screenshots/devices.png)
+
+## 隐私
+
+手机分两种角色，你可以在电脑控制台随时切换：
+
+- **日常手机**（默认，daily 版）：鲸鱼会记住你在手机上的经历，但以下内容**永远不会保存**——锁屏、密码输入框、安全窗口、通知栏与系统界面、输入法、系统设置、安全中心、密码管理器和验证器。你还可以添加**不想被记录的应用和网站**；验证码、银行卡号、身份证号在保存前会自动打码。
+- **鲸鱼专用手机**（root 版默认）：这是给鲸鱼自己用的手机，它拥有全部能力，经历原样记录。
+
+其他保护：
+
+- 每台手机都有自己的设备密钥（存放在系统安全区），配对码只能用一次、10 分钟内有效；在电脑上**撤销**设备会立即断开。
+- 每一项手机能力（点按、执行命令、读取屏幕……）都可以单独授权；鲸鱼只能做你允许的事。
+- 所有模块都可以在「我的」里单独关闭，或一键全部暂停。
+
+## 常见问题
+
+**连不上 Core？** 检查：① 地址里的 IP 和端口与电脑控制台显示的一致；② 电脑上已打开「允许局域网里的手机连接」并重启过；③ Windows 防火墙已允许鲸鱼；④ 手机和电脑在同一个 Wi-Fi。
+
+**配对码提示无效？** 配对码只能用一次且 10 分钟内有效，在电脑上重新生成即可。
+
+**后台被杀、收不到提醒？** 在系统设置里把 Whale 的电池策略设为「不限制」，并允许自启动（各品牌位置不同，可参考 [Magic8 Pro 设置指南](docs/SETUP-MAGIC8.md)）。
+
+**日常手机想让鲸鱼帮忙操作？** 在系统「无障碍」设置中开启「Whale 屏幕感知与操控」，无需 Root。
+
+## 给开发者
+
+Flutter（界面）+ Kotlin（常驻服务、设备传输、感知与执行）。与电脑端之间的设备协议在 [`contracts/device/`](contracts/device/)（镜像自 whale-core）。
 
 ```bash
-git clone https://github.com/amwangfan/whale-mobile.git
-cd whale-mobile
-pip install -r requirements-test.txt
-python3 tests/contract_validate.py
-cd app
-flutter pub get
-flutter test
-flutter build apk --debug --flavor daily
+git clone https://github.com/amwangfan/whale-mobile.git && cd whale-mobile
+pip install -r requirements-test.txt && python3 tests/contract_validate.py
+cd app && flutter pub get && flutter test
+flutter build apk --release --flavor daily      # 或 --flavor root
 ```
 
-安装后按 App 引导生成设备身份、连接 Core、配置所需模块。正式手机的安装和后台运行方法见 [Magic8 Pro 指南](docs/SETUP-MAGIC8.md)；真机能力和测试状态见 [STATUS](docs/STATUS.md)。
-
-## 结构与技术栈
-
-| 运行层 | 代码位置 | 技术 |
-| --- | --- | --- |
-| 应用页面 | `app/lib/features/`、`app/lib/modules/` | Flutter / Dart |
-| 设备后台 | `app/android/app/src/main/kotlin/com/wangfanlab/whale/runtime/v2/` | Kotlin、Android Service、Lifecycle |
-| 通信与缓存 | `app/android/.../transport/v2/` | V2 WSS、Ed25519、SQLite 加密离线队列 |
-| 感知与索引 | `app/android/.../modules/capture/`、ScreenMemo 客户端 | Android Accessibility、ML Kit OCR、SQLite / FTS |
-| 自动操作 | `app/android/.../modules/agent2/` | UI 树、无障碍操作、Root Shell |
-| 来电与语音 | `app/android/.../modules/voip/`、`server/audio-bridge/` | Android Telecom、PCM/TCP |
-| 界面通知与眼镜 | `app/android/.../modules/notification2/`、`app/android/.../modules/glasses/` | Android 通知、可插拔设备桥 |
-
-```bash
-cd app
-flutter build apk --debug --flavor daily
-flutter build apk --debug --flavor root
-cd android
-./gradlew :app:testDailyDebugUnitTest :app:testRootDebugUnitTest
-```
-
-## 设备权限
-
-- **日常手机**：按选定的数据源、通知/采集权限和设备 scope 提供感知；需要审批的操作遵守 Core 与端侧实际授权设置，常规通知无须额外阻断。
-- **普通日常手机**：到 Android 系统无障碍设置手动开启「Whale 屏幕感知与操控」后，支持结构化 UI 观察、点击/滑动、焦点输入框设字、返回/主页/多任务和启动应用，无须 Root。仅可列出 Android 允许查询的启动器应用；部分特殊按键需要 Root/ADB。
-- **鲸鱼专用 Root 手机**：提供 Root Shell、输入命令、文件、日志与录制能力，普通 UI 操作优先使用 Root；没有 Root 时使用已启用的无障碍服务。保留紧急停止。
-- **执行状态**：以动作终态回执和设备反馈为准。超时/离线/未知结果与执行成功是不同状态，避免重复执行有副作用的操作。
-
-## 后续计划
-
-- 雷鸟 iO 真实镜片显示：眼镜桥接通道联调与真机验收
-- 连续自主 APP 任务的端到端验收
-- 通话语音后备链路的降级提示与话中工具审批联动
-- 长期耗电基线与更多机型兼容性验证
-
-## CI（按需运行）
-
-[ci 工作流](.github/workflows/ci.yml) 使用手动 `workflow_dispatch`，在 **Actions → ci → Run workflow** 选择 `contracts`、`app`、`secret-scan` 或 `all`。
+推送 `v*` 标签会通过 [release 工作流](.github/workflows/release.yml) 自动构建两个 APK 并发布到 Releases。更多见 [架构](docs/ARCHITECTURE.md)、[AI 开发指南](docs/AI_DEVELOPMENT_GUIDE.md)、[当前进度](docs/STATUS.md)。
 
 ## 许可与致谢
 
-屏幕采集与检索参考 [ScreenMemo](https://github.com/woijfwefw/ScreenMemo)（AGPL-3.0）项目；部分 VoIP 与前台监测代码源自 whale-io。引入第三方代码或素材时按其实际许可证处理。
+屏幕采集与检索参考 [ScreenMemo](https://github.com/woijfwefw/ScreenMemo)（AGPL-3.0）；部分 VoIP 与前台监测代码源自 whale-io。引入第三方代码或素材时按其实际许可证处理。
