@@ -1,42 +1,65 @@
 import 'package:flutter/material.dart';
 
+import '../../../transport/link/link_client.dart';
+import '../controllers/approval_controller.dart';
 import '../controllers/chat_controller.dart';
-import '../models/attachment.dart';
 import '../models/message.dart';
-import '../services/attachment_service.dart';
-import '../services/chat_api.dart';
+import '../services/artifact_service.dart';
+import '../services/chat_attachments.dart';
+import '../services/chat_images.dart';
+import '../services/link_session.dart';
 import '../widgets/attachment_picker.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/sticker_picker.dart';
+import 'approvals_page.dart';
 import 'persona_settings.dart';
 
-/// 聊天页（Phase 4）：流式消息列表 + 输入栏（文字/附件/表情包）。
+/// 聊天页（v3 统一主干）：Link 事件流驱动 + SSE 退路 + 审批可见可裁决。
+///
+/// 生命周期（M2/O1）：页面活跃持有 LinkSession 连接，离开释放
+/// （引用计数；通知永不丢走设备 WS，既有不动）。
 class ChatPage extends StatefulWidget {
   const ChatPage({
     super.key,
     required this.conversationId,
+    this.title = '',
+    this.session,
     this.controller,
-    this.api,
-    this.attachmentService,
+    this.approvals,
+    this.artifactService,
+    this.attachments,
   });
 
   final String conversationId;
 
-  /// 测试注入点（为 null 时各自建真实实现）。
+  /// 会话标题（列表带入；空则显示 id）。
+  final String title;
+
+  /// 会话级 Link 连接（默认全局 LinkSession.instance；测试可注入假会话）。
+  final LinkSession? session;
+
+  /// 测试注入点（非空时直接使用，不走 session 建连）。
   final ChatController? controller;
-  final ChatApi? api;
-  final AttachmentService? attachmentService;
+
+  /// 测试注入点（审批中心；默认 session.approvals）。
+  final ApprovalController? approvals;
+
+  /// 测试注入点。
+  final ArtifactService? artifactService;
+  final ChatAttachments? attachments;
 
   @override
   State<ChatPage> createState() => _ChatPageState();
 }
 
 class _ChatPageState extends State<ChatPage> {
-  late final ChatController _controller = widget.controller ??
-      ChatController(conversationId: widget.conversationId);
-  late final ChatApi _api = widget.api ?? ChatApi();
-  late final AttachmentService _attachments =
-      widget.attachmentService ?? AttachmentService();
+  LinkSession get _session => widget.session ?? LinkSession.instance;
+
+  ChatController? _controller;
+  ApprovalController? _approvals;
+  late final ArtifactService _artifacts =
+      widget.artifactService ?? ArtifactService();
+  late final ChatAttachments _picker = widget.attachments ?? ChatAttachments();
 
   final TextEditingController _input = TextEditingController();
   final ScrollController _scroll = ScrollController();
@@ -44,40 +67,46 @@ class _ChatPageState extends State<ChatPage> {
 
   bool _stickerOpen = false;
 
-  /// 待发送附件（已上传完成，跟随下一条消息）。
-  final List<AttachmentRef> _pendingAttachments = <AttachmentRef>[];
+  /// 待发送图片（data: URL ≤4 张每张 ≤2MB）。
+  final List<PickedImage> _pendingImages = <PickedImage>[];
+  String? _attachError;
 
-  /// 附件上传中的显式状态（不做静默假象）。
-  bool _uploading = false;
-  String? _uploadError;
-
-  /// 图片附件鉴权头（cached_network_image）。
-  Map<String, String> _imageHeaders = const {};
-  String _baseUrl = '';
+  /// artifact 下载鉴权头。
+  Map<String, String> _artifactHeaders = const {};
+  String _artifactBase = '';
 
   @override
   void initState() {
     super.initState();
-    _controller.addListener(_onUpdate);
+    _session.addListener(_onSession);
     _scroll.addListener(_maybeLoadOlder);
-    _controller.loadInitial();
-    _resolveImageAuth();
+    if (widget.controller != null) {
+      _useController(widget.controller!);
+    } else {
+      _session.acquire();
+      _onSession(); // api 可能已就绪
+    }
+    _resolveArtifactAuth();
   }
 
-  Future<void> _resolveImageAuth() async {
-    try {
-      final headers = await _api.authHeaders();
-      // baseUrl 用于拼附件下载地址
-      final uri = await _api.attachmentUri('placeholder');
-      if (!mounted) return;
-      setState(() {
-        _imageHeaders = headers;
-        _baseUrl = uri.toString().replaceAll('placeholder', '');
-      });
-    } catch (_) {/* 配置缺失时图片加载失败会显式占位 */}
+  void _onSession() {
+    final api = _session.api;
+    if (_controller == null && api != null) {
+      _useController(ChatController(conversationId: widget.conversationId, api: api));
+    }
+    if (mounted) setState(() {});
   }
 
-  String _attachmentUrl(String attachmentId) => '$_baseUrl$attachmentId';
+  void _useController(ChatController controller) {
+    _controller = controller;
+    _approvals = widget.approvals ?? _session.approvals;
+    _controller!.addListener(_onUpdate);
+    _approvals?.addListener(_onUpdate);
+    _controller!.attach();
+    _controller!.loadInitial();
+  }
+
+
 
   void _onUpdate() {
     if (mounted) setState(() {});
@@ -86,7 +115,7 @@ class _ChatPageState extends State<ChatPage> {
   void _maybeLoadOlder() {
     // reverse 列表：滚动到「视觉顶部」= pixels 接近 maxScrollExtent
     if (_scroll.position.pixels > _scroll.position.maxScrollExtent - 200) {
-      _controller.loadOlder();
+      _controller?.loadOlder();
     }
   }
 
@@ -95,116 +124,157 @@ class _ChatPageState extends State<ChatPage> {
     _input.dispose();
     _scroll.dispose();
     _inputFocus.dispose();
-    _controller.removeListener(_onUpdate);
-    if (widget.controller == null) _controller.dispose();
-    if (widget.api == null) _api.close();
-    if (widget.attachmentService == null) _attachments.close();
+    _session.removeListener(_onSession);
+    _controller?.removeListener(_onUpdate);
+    _approvals?.removeListener(_onUpdate);
+    if (widget.controller == null) {
+      _controller?.dispose();
+      _session.release();
+    }
+    if (widget.artifactService == null) _artifacts.close();
     super.dispose();
   }
 
   // ---------------------------------------------------------------- 发送
 
   Future<void> _send() async {
+    final controller = _controller;
+    if (controller == null) return;
     final text = _input.text;
-    final atts = List<AttachmentRef>.of(_pendingAttachments);
-    if (text.trim().isEmpty && atts.isEmpty) return;
+    final imgs = List<PickedImage>.of(_pendingImages);
+    if (text.trim().isEmpty && imgs.isEmpty) return;
     _input.clear();
-    setState(() => _pendingAttachments.clear());
-    await _controller.send(text, attachments: atts);
+    setState(() => _pendingImages.clear());
+    await controller.send(
+      text,
+      images: imgs.map((i) => i.dataUrl).toList(),
+      localImages: imgs
+          .map((i) => LocalImage(dataUrl: i.dataUrl, mime: i.mime))
+          .toList(),
+    );
   }
 
-  Future<void> _pickAndUpload(Future<PickedAttachment?> Function() pick) async {
-    setState(() {
-      _uploading = true;
-      _uploadError = null;
-    });
+  Future<void> _pickImage(Future<PickedImage?> Function() pick) async {
+    if (_pendingImages.length >= ChatImages.maxImages) {
+      setState(() => _attachError = '图片最多 ${ChatImages.maxImages} 张');
+      return;
+    }
+    setState(() => _attachError = null);
+    final picked = await pick();
+    if (!mounted || picked == null) return;
+    if (picked.bytes.length > ChatImages.maxImageBytes) {
+      setState(() => _attachError = '图片超过 2MB 且无法压缩到界内');
+      return;
+    }
+    setState(() => _pendingImages.add(picked));
+  }
+
+  /// 文件上行：POST /api/artifacts（核心差距：core 未实现 → 404 特性探测降级，
+  /// 显式提示「未实现」，不伪装失败重试）。
+  Future<void> _pickAndUploadFile() async {
+    setState(() => _attachError = null);
+    final picked = await _picker.pickFile();
+    if (!mounted || picked == null) return;
     try {
-      final picked = await pick();
-      if (picked == null) {
-        setState(() => _uploading = false);
-        return; // 用户取消
-      }
-      final ref = await _attachments.upload(picked);
+      await _artifacts.upload(
+        bytes: picked.bytes,
+        name: picked.filename,
+        contentType: picked.mime,
+      );
       if (!mounted) return;
-      setState(() {
-        _pendingAttachments.add(ref);
-        _uploading = false;
-      });
-    } on ChatApiException catch (e) {
-      if (mounted) {
-        setState(() {
-          _uploading = false;
-          _uploadError = '附件上传失败：$e';
-        });
-      }
+      // 上行成功：暂以提示呈现（chat.send 的 artifact 引用为契约目标态，
+      // 当前 core 面未实现上行，走不到这里）
+      setState(() => _attachError = '文件已上传（artifact 引用发送为目标态，本期请直接发图片）');
+    } on ArtifactException catch (e) {
+      if (mounted) setState(() => _attachError = e.toString());
     }
   }
 
   void _openAttachmentPicker() {
     AttachmentPicker.show(
       context,
-      onTakePhoto: () => _pickAndUpload(_attachments.takePhoto),
-      onPickImage: () => _pickAndUpload(_attachments.pickImage),
-      onPickFile: () => _pickAndUpload(_attachments.pickFile),
+      onTakePhoto: () => _pickImage(_picker.takePhoto),
+      onPickImage: () => _pickImage(_picker.pickImage),
+      onPickFile: _pickAndUploadFile,
     );
   }
 
   void _openPersonaSettings() {
+    final api = _session.api;
+    if (api == null) return;
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => PersonaSettingsPage(
           conversationId: widget.conversationId,
-          api: _api,
+          api: api,
         ),
       ),
     );
   }
 
-  /// 附件点击：图片全屏预览；其余显式提示（下载/打开留待系统集成）。
-  void _openAttachment(AttachmentRef att) {
-    if (att.type == AttachmentType.image) {
-      Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => Scaffold(
-            appBar: AppBar(title: Text(att.attachmentId)),
-            body: Center(
-              child: InteractiveViewer(
-                child: Image.network(
-                  _attachmentUrl(att.attachmentId),
-                  headers: _imageHeaders,
-                ),
-              ),
+  void _openApprovals() {
+    final approvals = _approvals;
+    if (approvals == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ApprovalsPage(controller: approvals),
+      ),
+    );
+  }
+
+  /// artifact 引用点击：GET /api/artifacts/{id}（Bearer）预览/下载。
+  Future<void> _openArtifact(String artifactId) async {
+    final headers = _artifactHeaders;
+    final url = '$_artifactBase$artifactId';
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => Scaffold(
+          appBar: AppBar(title: Text(artifactId)),
+          body: Center(
+            child: InteractiveViewer(
+              child: Image.network(url, headers: headers,
+                  errorBuilder: (context, error, stack) =>
+                      const Text('产物加载失败（非图片或网络不可达）')),
             ),
           ),
         ),
-      );
-    } else {
-      showDialog<void>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: Text(att.type.label),
-          content: Text(
-            '${att.mime} · ${att.sizeLabel}\n引用：${att.attachmentId}',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('关闭'),
-            ),
-          ],
-        ),
-      );
-    }
+      ),
+    );
+  }
+
+  Future<void> _resolveArtifactAuth() async {
+    try {
+      final headers = await _artifacts.authHeaders();
+      final uri = await _artifacts.artifactUri('placeholder');
+      if (!mounted) return;
+      setState(() {
+        _artifactHeaders = headers;
+        _artifactBase = uri.toString().replaceAll('placeholder', '');
+      });
+    } catch (_) {/* 配置缺失时产物加载失败会显式占位 */}
   }
 
   // ---------------------------------------------------------------- UI
 
   @override
   Widget build(BuildContext context) {
+    final controller = _controller;
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.conversationId.replaceFirst('mobile:', '')),
+        title: Text(widget.title.isNotEmpty
+            ? widget.title
+            : widget.conversationId.replaceFirst('mobile:', '')),
         actions: [
+          // 审批入口（待决数角标）
+          IconButton(
+            tooltip: '审批',
+            icon: Badge(
+              isLabelVisible: (_approvals?.pending.length ?? 0) > 0,
+              label: Text('${_approvals?.pending.length ?? 0}'),
+              child: const Icon(Icons.gpp_maybe),
+            ),
+            onPressed: _openApprovals,
+          ),
           IconButton(
             tooltip: '角色设置',
             icon: const Icon(Icons.person),
@@ -214,19 +284,96 @@ class _ChatPageState extends State<ChatPage> {
       ),
       body: Column(
         children: [
-          if (_controller.error != null) _errorBanner(_controller.error!),
+          _connectionBanner(),
+          if (controller?.error != null) _errorBanner(controller!.error!),
+          _approvalBanner(),
           Expanded(child: _messageList()),
-          if (_uploading || _uploadError != null) _uploadBanner(),
-          if (_pendingAttachments.isNotEmpty) _pendingBar(),
+          if (_attachError != null) _attachBanner(),
+          if (_pendingImages.isNotEmpty) _pendingBar(),
           _inputBar(),
           if (_stickerOpen)
             StickerPicker(onSelect: (key) {
-              // 占位贴图：以 [贴纸:key] 文本插入输入框（真实贴图附件后续接入）
+              // 占位贴图：以 [贴纸:key] 文本插入输入框
               _input.text = '${_input.text}[贴纸:$key]';
-              _input.selection = TextSelection.collapsed(
-                  offset: _input.text.length);
+              _input.selection =
+                  TextSelection.collapsed(offset: _input.text.length);
             }),
         ],
+      ),
+    );
+  }
+
+  /// 连接状态横幅（断线显式可见；SSE 退路提示）。
+  Widget _connectionBanner() {
+    final session = _session;
+    final state = session.state;
+    if (session.error != null) {
+      return _banner(
+        '连接已断开：${session.error}（可在「我的 → Core 连接设置」核对后重进本页）',
+        isError: true,
+      );
+    }
+    switch (state) {
+      case LinkState.connected:
+        return const SizedBox.shrink();
+      case LinkState.degraded:
+        return _banner('连接中断，重连中…（发送将走一次性通道）', isError: false);
+      case LinkState.connecting:
+        return _banner('连接中…', isError: false);
+      case LinkState.disconnected:
+        return _banner('未连接：消息将走一次性通道（SSE）', isError: false);
+    }
+  }
+
+  /// 待决审批横幅（手机可见可裁决，M1）。
+  Widget _approvalBanner() {
+    final pending = _approvals?.pending ?? const [];
+    if (pending.isEmpty) return const SizedBox.shrink();
+    final a = pending.first;
+    return Material(
+      color: Theme.of(context).colorScheme.errorContainer,
+      child: InkWell(
+        onTap: _openApprovals,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Row(
+            children: [
+              const Icon(Icons.gpp_maybe, size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '待审批：${a.displayTitle}（${pending.length}）',
+                  style: const TextStyle(fontSize: 13),
+                ),
+              ),
+              const Icon(Icons.chevron_right, size: 18),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _banner(String text, {required bool isError}) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: isError
+          ? scheme.errorContainer
+          : scheme.surfaceContainerHighest,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        child: Row(
+          children: [
+            Icon(isError ? Icons.error_outline : Icons.cloud_off, size: 18),
+            const SizedBox(width: 8),
+            Expanded(child: Text(text, style: const TextStyle(fontSize: 12))),
+            if (isError)
+              TextButton(
+                onPressed: _session.reconnect,
+                child: const Text('重连'),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -244,7 +391,7 @@ class _ChatPageState extends State<ChatPage> {
               child: Text(text, style: const TextStyle(fontSize: 12)),
             ),
             TextButton(
-              onPressed: _controller.refresh,
+              onPressed: _controller?.refresh,
               child: const Text('刷新'),
             ),
           ],
@@ -254,50 +401,41 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   Widget _messageList() {
-    if (_controller.loadingInitial && _controller.messages.isEmpty) {
+    final controller = _controller;
+    if (controller == null || (controller.loadingInitial && controller.messages.isEmpty)) {
       return const Center(child: CircularProgressIndicator());
     }
-    if (_controller.messages.isEmpty) {
+    if (controller.messages.isEmpty) {
       return const Center(child: Text('发一条消息开始对话吧'));
     }
     return ListView.builder(
       controller: _scroll,
       reverse: true, // index 0 = 最新（视觉底部）
-      itemCount: _controller.messages.length +
-          (_controller.loadingOlder ? 1 : 0),
+      itemCount: controller.messages.length + (controller.loadingOlder ? 1 : 0),
       itemBuilder: (context, i) {
-        if (i >= _controller.messages.length) {
+        if (i >= controller.messages.length) {
           return const Padding(
             padding: EdgeInsets.all(12),
             child: Center(child: CircularProgressIndicator()),
           );
         }
-        final m = _controller.messages[i];
+        final m = controller.messages[i];
         return MessageBubble(
           message: m,
-          currentPhase:
-              m.sendState == MessageSendState.streaming
-                  ? _controller.currentPhase
-                  : null,
-          resolveAttachmentUrl: _attachmentUrl,
-          attachmentHeaders: _imageHeaders,
-          onAttachmentTap: _openAttachment,
+          statusLine:
+              m.sendState == MessageSendState.streaming ? controller.statusLine : null,
+          onArtifactTap: _openArtifact,
         );
       },
     );
   }
 
-  Widget _uploadBanner() {
+  Widget _attachBanner() {
     return Container(
       width: double.infinity,
-      color: _uploadError != null
-          ? Theme.of(context).colorScheme.errorContainer
-          : Theme.of(context).colorScheme.surfaceContainerHighest,
+      color: Theme.of(context).colorScheme.errorContainer,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      child: Text(
-        _uploadError ?? '附件上传中…',
-        style: const TextStyle(fontSize: 12),
-      ),
+      child: Text(_attachError!, style: const TextStyle(fontSize: 12)),
     );
   }
 
@@ -308,20 +446,16 @@ class _ChatPageState extends State<ChatPage> {
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 8),
         children: [
-          for (final att in _pendingAttachments)
+          for (final img in _pendingImages)
             Padding(
               padding: const EdgeInsets.all(6),
               child: Chip(
-                avatar: Icon(
-                  att.type == AttachmentType.image
-                      ? Icons.image
-                      : Icons.insert_drive_file,
-                  size: 16,
+                avatar: const Icon(Icons.image, size: 16),
+                label: Text(
+                  '图片 ${(img.bytes.length / 1024).toStringAsFixed(0)}KB',
+                  style: const TextStyle(fontSize: 12),
                 ),
-                label: Text('${att.type.label} ${att.sizeLabel}',
-                    style: const TextStyle(fontSize: 12)),
-                onDeleted: () =>
-                    setState(() => _pendingAttachments.remove(att)),
+                onDeleted: () => setState(() => _pendingImages.remove(img)),
               ),
             ),
         ],
@@ -330,6 +464,8 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   Widget _inputBar() {
+    final controller = _controller;
+    final busy = controller?.sending ?? false;
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
@@ -337,18 +473,16 @@ class _ChatPageState extends State<ChatPage> {
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             IconButton(
-              tooltip: '附件',
+              tooltip: '图片/文件',
               icon: const Icon(Icons.attach_file),
-              onPressed:
-                  _controller.sending || _uploading ? null : _openAttachmentPicker,
+              onPressed: busy ? null : _openAttachmentPicker,
             ),
             IconButton(
               tooltip: '表情包',
               icon: Icon(_stickerOpen
                   ? Icons.keyboard
                   : Icons.emoji_emotions_outlined),
-              onPressed: () =>
-                  setState(() => _stickerOpen = !_stickerOpen),
+              onPressed: () => setState(() => _stickerOpen = !_stickerOpen),
             ),
             Expanded(
               child: TextField(
@@ -365,11 +499,18 @@ class _ChatPageState extends State<ChatPage> {
               ),
             ),
             const SizedBox(width: 4),
-            IconButton(
-              tooltip: '发送',
-              icon: const Icon(Icons.send),
-              onPressed: _controller.sending || _uploading ? null : _send,
-            ),
+            if (busy && (controller?.canCancel ?? false))
+              IconButton(
+                tooltip: '打断',
+                icon: const Icon(Icons.stop_circle_outlined),
+                onPressed: controller?.cancelActive,
+              )
+            else
+              IconButton(
+                tooltip: '发送',
+                icon: const Icon(Icons.send),
+                onPressed: busy ? null : _send,
+              ),
           ],
         ),
       ),

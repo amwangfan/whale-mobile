@@ -1,112 +1,194 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
+import '../../../navigation/app_navigation.dart';
+import '../../../transport/link/link_client.dart';
+import '../../../transport/link/ulid.dart';
 import '../models/conversation.dart';
-import '../services/chat_api.dart';
+import '../services/link_chat_api.dart';
+import '../services/link_session.dart';
+import 'approvals_page.dart';
 import 'chat_page.dart';
 
-/// 会话列表页（Phase 4）。
+/// 会话列表页（v3 统一主干：`conversations.list` 经 Link RPC）。
 ///
-/// 新建会话：Core 无显式 create 端点——会话在发送第一条消息时以
-/// conversation_id 隐式创建；这里生成客户端会话 ID 进入聊天页即可。
-/// 删除/恢复会话：Core v2 移动端面无删除端点，暂不提供（见开发报告遗留项）。
+/// 连接生命周期（M2/O1）：聊天 tab 可见且应用前台时持有 Link 连接，
+/// 切走/退后台释放（通知永不丢走设备 WS）。
+/// 新建会话：客户端生成 `mobile:ULID`，首条消息隐式创建；标题可在
+/// 会话菜单改（conversations.update）。删除会话：conversations.delete。
 class ConversationListPage extends StatefulWidget {
-  const ConversationListPage({super.key, this.api});
+  const ConversationListPage({super.key, this.session});
 
-  /// 测试注入点（为 null 时自建真实实现）。
-  final ChatApi? api;
+  /// 测试注入点（默认全局 LinkSession.instance）。
+  final LinkSession? session;
 
   @override
   State<ConversationListPage> createState() => _ConversationListState();
 }
 
-class _ConversationListState extends State<ConversationListPage> {
-  late final ChatApi _api = widget.api ?? ChatApi();
+class _ConversationListState extends State<ConversationListPage>
+    with WidgetsBindingObserver {
+  LinkSession get _session => widget.session ?? LinkSession.instance;
+
   final List<Conversation> _items = <Conversation>[];
   final ScrollController _scroll = ScrollController();
 
   bool _loading = false;
-  bool _loadingMore = false;
   String? _error;
-  String? _nextCursor;
+  bool _holding = false;
+  StreamSubscription<LinkEvent>? _notifySub;
 
   @override
   void initState() {
     super.initState();
-    _scroll.addListener(_maybeLoadMore);
-    _load();
+    WidgetsBinding.instance.addObserver(this);
+    AppNavigation.tabIndex.addListener(_syncHold);
+    _session.addListener(_onSession);
+    _syncHold();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    AppNavigation.tabIndex.removeListener(_syncHold);
+    _session.removeListener(_onSession);
+    _notifySub?.cancel();
+    _releaseHold();
     _scroll.dispose();
-    if (widget.api == null) _api.close();
     super.dispose();
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _syncHold();
+  }
+
+  /// 按需连接：聊天 tab 可见（index 0）且应用前台 → acquire；否则 release。
+  void _syncHold() {
+    final visible = AppNavigation.tabIndex.value == 0;
+    final resumed = WidgetsBinding.instance.lifecycleState ==
+        AppLifecycleState.resumed;
+    if (visible && resumed && !_holding) {
+      _holding = true;
+      _session.acquire();
+    } else if ((!visible || !resumed) && _holding) {
+      _releaseHold();
+    }
+  }
+
+  void _releaseHold() {
+    if (!_holding) return;
+    _holding = false;
+    _session.release();
+  }
+
+  void _onSession() {
+    final api = _session.api;
+    if (api != null) {
+      _notifySub ??= api.events
+          .where((e) => e.topic == 'notify')
+          .listen(_onNotify);
+      // 连接就绪/重连后刷新列表
+      _load();
+    }
+    if (mounted) setState(() {});
+  }
+
+  /// notify 事件（服务端主动消息）：聊天页活跃时以 SnackBar 呈现。
+  /// 通知永不丢走设备 WS（既有不动），这里只是 Link 在线时的即时展示。
+  void _onNotify(LinkEvent ev) {
+    if (!mounted) return;
+    final body = ev.data['body'] as String? ?? '';
+    final title = ev.data['title'] as String? ?? '';
+    if (body.isEmpty && title.isEmpty) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(title.isEmpty ? body : '$title：$body')),
+    );
+  }
+
   Future<void> _load() async {
+    final api = _session.api;
+    if (api == null || _loading) return;
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
-      final page = await _api.listConversations();
+      final items = await api.listConversations(limit: 100);
       if (!mounted) return;
       setState(() {
         _items
           ..clear()
-          ..addAll(page.conversations);
-        _nextCursor = page.nextCursor;
+          ..addAll(items);
       });
-    } on ChatApiException catch (e) {
+    } on LinkError catch (e) {
       if (mounted) setState(() => _error = e.toString());
     }
     if (mounted) setState(() => _loading = false);
   }
 
-  void _maybeLoadMore() {
-    if (_nextCursor == null || _loadingMore || _loading) return;
-    if (_scroll.position.pixels >
-        _scroll.position.maxScrollExtent - 200) {
-      _loadMore();
-    }
-  }
-
-  Future<void> _loadMore() async {
-    final cursor = _nextCursor;
-    if (cursor == null) return;
-    setState(() => _loadingMore = true);
-    try {
-      final page = await _api.listConversations(cursor: cursor);
-      if (!mounted) return;
-      setState(() {
-        final seen = _items.map((c) => c.conversationId).toSet();
-        _items.addAll(
-            page.conversations.where((c) => !seen.contains(c.conversationId)));
-        _nextCursor = page.nextCursor;
-      });
-    } on ChatApiException catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('加载更多失败：$e')));
-      }
-    }
-    if (mounted) setState(() => _loadingMore = false);
-  }
-
-  /// 新建会话：输入会话名 → 生成 conversation_id 并进入聊天页。
+  /// 新建会话：mobile:<ULID>，进入聊天页；标题由首条消息自动落
+  /// （或经会话菜单 conversations.update 改）。
   Future<void> _newConversation() async {
-    final controller = TextEditingController();
-    final name = await showDialog<String>(
+    final cid = 'mobile:${newUlid()}';
+    await _openChat(cid, '');
+  }
+
+  Future<void> _openChat(String conversationId, String title) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ChatPage(conversationId: conversationId, title: title),
+      ),
+    );
+    _load(); // 返回后刷新列表（预览/排序变化）
+  }
+
+  /// 会话菜单：改标题 / 删除（conversations.update/delete）。
+  Future<void> _conversationMenu(Conversation c) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.edit),
+              title: const Text('改标题'),
+              onTap: () => Navigator.of(context).pop('rename'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline),
+              title: const Text('删除会话'),
+              onTap: () => Navigator.of(context).pop('delete'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || action == null) return;
+    final api = _session.api;
+    if (api == null) return;
+    switch (action) {
+      case 'rename':
+        await _rename(api, c);
+        break;
+      case 'delete':
+        await _delete(api, c);
+        break;
+    }
+  }
+
+  Future<void> _rename(ChatBackend api, Conversation c) async {
+    final controller = TextEditingController(text: c.title);
+    final title = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('新建会话'),
+        title: const Text('改标题'),
         content: TextField(
           controller: controller,
           autofocus: true,
-          decoration: const InputDecoration(
-            labelText: '会话名',
-            hintText: '例如：日常、工作',
-          ),
+          decoration: const InputDecoration(hintText: '会话标题'),
         ),
         actions: [
           TextButton(
@@ -114,35 +196,63 @@ class _ConversationListState extends State<ConversationListPage> {
             child: const Text('取消'),
           ),
           FilledButton(
-            onPressed: () =>
-                Navigator.of(context).pop(controller.text.trim()),
-            child: const Text('创建'),
+            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
+            child: const Text('保存'),
           ),
         ],
       ),
     );
-    if (!mounted || name == null || name.isEmpty) return;
-    // conversation_id 白名单字符（服务端 [:160] 截断；保持可读）
-    final slug = name.replaceAll(RegExp(r'[^0-9A-Za-z一-鿿:_-]'), '_');
-    final cid = 'mobile:$slug';
-    await _openChat(cid);
+    if (!mounted || title == null || title.isEmpty) return;
+    try {
+      await api.updateConversation(c.conversationId, title: title);
+      _load();
+    } on LinkError catch (e) {
+      _showErr('改标题失败：$e');
+    }
   }
 
-  Future<void> _openChat(String conversationId) async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => ChatPage(conversationId: conversationId),
+  Future<void> _delete(ChatBackend api, Conversation c) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('删除会话'),
+        content: Text('删除「${c.displayName}」及其全部消息？不可恢复。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.error),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('删除'),
+          ),
+        ],
       ),
     );
-    _load(); // 返回后刷新列表（预览/排序变化）
+    if (!mounted || ok != true) return;
+    try {
+      await api.deleteConversation(c.conversationId);
+      _load();
+    } on LinkError catch (e) {
+      _showErr('删除失败：$e');
+    }
   }
 
-  String _preview(Conversation c) {
-    final text = c.lastMessageText;
-    if (text == null || text.isEmpty) return '（暂无消息）';
-    final prefix = c.lastMessageRole == 'user' ? '我：' : '';
-    return prefix +
-        (text.length > 60 ? '${text.substring(0, 60)}…' : text);
+  void _showErr(String text) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+  }
+
+  void _openApprovals() {
+    final approvals = _session.approvals;
+    if (approvals == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ApprovalsPage(controller: approvals),
+      ),
+    );
   }
 
   String _timeLabel(int? ms) {
@@ -157,8 +267,28 @@ class _ConversationListState extends State<ConversationListPage> {
 
   @override
   Widget build(BuildContext context) {
+    final approvals = _session.approvals;
     return Scaffold(
-      appBar: AppBar(title: const Text('聊天')),
+      appBar: AppBar(
+        title: const Text('聊天'),
+        actions: [
+          ListenableBuilder(
+            listenable: _session,
+            builder: (context, _) {
+              final n = approvals?.pending.length ?? 0;
+              return IconButton(
+                tooltip: '审批',
+                icon: Badge(
+                  isLabelVisible: n > 0,
+                  label: Text('$n'),
+                  child: const Icon(Icons.gpp_maybe),
+                ),
+                onPressed: _openApprovals,
+              );
+            },
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton(
         onPressed: _newConversation,
         tooltip: '新建会话',
@@ -172,7 +302,26 @@ class _ConversationListState extends State<ConversationListPage> {
   }
 
   Widget _buildBody() {
-    if (_loading && _items.isEmpty) {
+    final session = _session;
+    if (session.error != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.cloud_off, size: 48, color: Colors.grey),
+              const SizedBox(height: 8),
+              Text(session.error!, textAlign: TextAlign.center),
+              const SizedBox(height: 12),
+              FilledButton(
+                  onPressed: session.reconnect, child: const Text('重连')),
+            ],
+          ),
+        ),
+      );
+    }
+    if (session.api == null || (_loading && _items.isEmpty)) {
       return const Center(child: CircularProgressIndicator());
     }
     if (_error != null && _items.isEmpty) {
@@ -205,25 +354,15 @@ class _ConversationListState extends State<ConversationListPage> {
     return ListView.builder(
       controller: _scroll,
       physics: const AlwaysScrollableScrollPhysics(),
-      itemCount: _items.length + (_loadingMore ? 1 : 0),
+      itemCount: _items.length,
       itemBuilder: (context, i) {
-        if (i >= _items.length) {
-          return const Padding(
-            padding: EdgeInsets.all(16),
-            child: Center(child: CircularProgressIndicator()),
-          );
-        }
         final c = _items[i];
         return ListTile(
           leading: CircleAvatar(
-            child: Text(c.conversationId.isNotEmpty
-                ? c.conversationId
-                    .replaceFirst('mobile:', '')
-                    .characters
-                    .first
-                : '?'),
+            child: Text(
+                c.displayName.isNotEmpty ? c.displayName.characters.first : '?'),
           ),
-          title: Text(c.conversationId.replaceFirst('mobile:', '')),
+          title: Text(c.displayName),
           subtitle: Text(
             _preview(c),
             maxLines: 1,
@@ -235,14 +374,20 @@ class _ConversationListState extends State<ConversationListPage> {
             children: [
               Text(_timeLabel(c.updatedAt),
                   style: Theme.of(context).textTheme.bodySmall),
-              if (c.personaId != null)
-                Text('角色:${c.personaId}',
-                    style: Theme.of(context).textTheme.bodySmall),
+              Text(c.channel, style: Theme.of(context).textTheme.bodySmall),
             ],
           ),
-          onTap: () => _openChat(c.conversationId),
+          onTap: () => _openChat(c.conversationId, c.title),
+          onLongPress: () => _conversationMenu(c),
         );
       },
     );
+  }
+
+  String _preview(Conversation c) {
+    final text = c.previewText;
+    if (text == null || text.isEmpty) return '（暂无消息）';
+    final prefix = c.previewRole == 'user' ? '我：' : '';
+    return prefix + text;
   }
 }
