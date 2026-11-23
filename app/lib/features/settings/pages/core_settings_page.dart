@@ -4,7 +4,11 @@ import '../../../transport/transport_client_v2.dart';
 import '../../chat/services/device_config.dart';
 import '../services/pairing_service.dart';
 
-/// Core 连接设置页：base_url + Bearer token（聊天 REST 用）+ owner-first 设备配对。
+/// Core 连接设置页：base_url + Bearer token（Link 聊天面 + artifacts 用）+
+/// owner-first 设备配对。
+///
+/// 聊天面（v3 收敛契约 M2/M3）：Link WS `ws(s)://{base}/api/link`，hello 带
+/// api_token（鉴权 A）；C 的 ticket 接口已留（core 侧实现中）。
 ///
 /// 配对（2026-11-23 clean break）：主人在 core 控制台「设备 → 配对新设备」生成
 /// 6 位码 → 本页输入 → POST {base}/api/devices/pair {code, pubkey_hex, label}
@@ -135,7 +139,7 @@ class _CoreSettingsPageState extends State<CoreSettingsPage> {
                   decoration: const InputDecoration(
                     labelText: 'Core 地址',
                     hintText: 'http://<core-host>:8193',
-                    helperText: '聊天 REST 与设备配对（POST /api/devices/pair）的基地址',
+                    helperText: 'Link 聊天面（ws(s)://{base}/api/link）与设备配对（POST /api/devices/pair）的基地址',
                     border: OutlineInputBorder(),
                   ),
                 ),
@@ -147,7 +151,7 @@ class _CoreSettingsPageState extends State<CoreSettingsPage> {
                   enableSuggestions: false,
                   decoration: const InputDecoration(
                     labelText: '访问令牌（Bearer）',
-                    helperText: 'Core 管理 API token；留空则请求会返回 401',
+                    helperText: 'Core 访问令牌：Link hello 鉴权 + artifacts Bearer；留空则连接被 4401 拒绝',
                     border: OutlineInputBorder(),
                   ),
                 ),

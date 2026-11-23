@@ -1,35 +1,35 @@
 import 'package:flutter/material.dart';
 
+import '../../../transport/link/link_client.dart';
 import '../models/persona.dart';
-import '../services/chat_api.dart';
+import '../services/link_chat_api.dart';
 
-/// 角色设置页（规划 §5.6）：切换会话角色。
+/// 角色设置页（v3）：切换会话角色。
 ///
-/// 角色绑定由 Core 管理（PUT /api/studio/conversations/{key}/persona）；
-/// 本页只负责列出可选角色（GET /api/studio/personas）、显示当前绑定并切换。
+/// 列表走 `personas.list`（Link 白名单内）；绑定走
+/// `conversations.update {id, persona_id}`（mobile 白名单含 conversations.*）。
 /// 记忆空间/工具能力由 Core 按角色授权，端侧只展示，不越权设置。
 class PersonaSettingsPage extends StatefulWidget {
   const PersonaSettingsPage({
     super.key,
     required this.conversationId,
     this.currentPersonaId,
-    this.api,
+    required this.api,
   });
 
   final String conversationId;
 
   /// 当前绑定（会话列表带过来的 persona_id；null = 默认角色）。
   final String? currentPersonaId;
-  /// 测试注入点（为 null 时自建真实实现）。
-  final ChatApi? api;
+
+  /// 聊天面后端（生产=LinkChatApi；测试注入假实现）。
+  final ChatBackend api;
 
   @override
   State<PersonaSettingsPage> createState() => _PersonaSettingsPageState();
 }
 
 class _PersonaSettingsPageState extends State<PersonaSettingsPage> {
-  late final ChatApi _api = widget.api ?? ChatApi();
-
   List<Persona>? _personas;
   String? _selected; // null = 默认角色
   bool _loading = true;
@@ -43,25 +43,19 @@ class _PersonaSettingsPageState extends State<PersonaSettingsPage> {
     _load();
   }
 
-  @override
-  void dispose() {
-    if (widget.api == null) _api.close();
-    super.dispose();
-  }
-
   Future<void> _load() async {
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
-      final personas = await _api.listPersonas();
+      final personas = await widget.api.listPersonas();
       if (!mounted) return;
       setState(() {
         _personas = personas;
         _loading = false;
       });
-    } on ChatApiException catch (e) {
+    } on LinkError catch (e) {
       if (mounted) {
         setState(() {
           _loading = false;
@@ -74,12 +68,13 @@ class _PersonaSettingsPageState extends State<PersonaSettingsPage> {
   Future<void> _save() async {
     setState(() => _saving = true);
     try {
-      await _api.bindPersona(widget.conversationId, _selected);
+      await widget.api.updateConversation(widget.conversationId,
+          personaId: _selected ?? '');
       if (!mounted) return;
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('角色已更新')));
       Navigator.of(context).pop(_selected);
-    } on ChatApiException catch (e) {
+    } on LinkError catch (e) {
       if (mounted) {
         setState(() {
           _saving = false;
@@ -135,13 +130,12 @@ class _PersonaSettingsPageState extends State<PersonaSettingsPage> {
             RadioListTile<String?>(
               title: Text(p.displayName),
               subtitle: Text([
-                if (p.summary != null && p.summary!.isNotEmpty) p.summary!,
-                if (p.temperament != null && p.temperament!.isNotEmpty)
-                  '性格：${p.temperament}',
+                if (p.tagline.isNotEmpty) p.tagline,
+                if (p.personality.isNotEmpty) '性格：${p.personality}',
                 if (p.builtin) '内置角色',
               ].join('\n')),
               secondary:
-                  p.category != null ? Chip(label: Text(p.category!)) : null,
+                  p.avatar.isNotEmpty ? Text(p.avatar, style: const TextStyle(fontSize: 20)) : null,
               value: p.id,
             ),
           if (personas.isEmpty)

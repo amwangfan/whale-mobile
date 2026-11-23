@@ -123,7 +123,7 @@ class ProfilePage extends StatelessWidget {
           ListTile(
             leading: const Icon(Icons.cloud),
             title: const Text('Core 连接设置'),
-            subtitle: const Text('聊天 REST 地址与访问令牌'),
+            subtitle: const Text('Core 地址与访问令牌（Link 聊天面 + 设备配对）'),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute<void>(

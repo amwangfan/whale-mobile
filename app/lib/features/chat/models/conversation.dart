@@ -1,53 +1,63 @@
-/// 会话模型（Phase 4；Core GET /api/v2/conversations 条目）。
+/// 会话模型（v3 统一主干：`conversations.list` 条目）。
+///
+/// Core 形状：`{id, title, channel, peer, persona_id, created_at, updated_at,
+/// turns, meta, preview:{role,text}|null}`。
 library;
 
 /// 会话列表条目。
 class Conversation {
   const Conversation({
     required this.conversationId,
+    this.title = '',
+    this.channel = 'mobile',
     this.personaId,
+    this.createdAt,
     this.updatedAt,
-    this.lastMessageRole,
-    this.lastMessageText,
-    this.lastMessageAt,
-    this.messageCount = 0,
+    this.turns = 0,
+    this.previewRole,
+    this.previewText,
   });
 
-  /// 会话 ID（如 `mobile:owner`）。
+  /// 会话 ID（客户端生成持有，如 `mobile:<ULID>`）。
   final String conversationId;
 
-  /// 当前绑定角色（可能为 null = 默认角色）。
+  /// 标题（首条用户消息前 40 字自动落；可 conversations.update 改）。
+  final String title;
+
+  /// 渠道（mobile/console/glasses/qq…）。
+  final String channel;
+
+  /// 当前绑定角色（null = 默认角色）。
   final String? personaId;
 
-  /// Unix 毫秒；纯历史会话可能为 null。
+  /// Unix 毫秒。
+  final int? createdAt;
   final int? updatedAt;
+  final int turns;
 
-  /// 预览（last_message：role/text/at）。
-  final String? lastMessageRole;
-  final String? lastMessageText;
-  final int? lastMessageAt;
-  final int messageCount;
+  /// 预览（preview：role/text，text 已截 80 字）。
+  final String? previewRole;
+  final String? previewText;
+
+  /// 展示名：title 优先，退化会话 id 去渠道前缀。
+  String get displayName {
+    if (title.isNotEmpty) return title;
+    final idx = conversationId.indexOf(':');
+    return idx >= 0 ? conversationId.substring(idx + 1) : conversationId;
+  }
 
   factory Conversation.fromJson(Map<String, dynamic> json) {
-    final last = json['last_message'];
+    final preview = (json['preview'] as Map?)?.cast<String, dynamic>();
     return Conversation(
-      conversationId: json['conversation_id'] as String? ?? '',
+      conversationId: json['id'] as String? ?? '',
+      title: json['title'] as String? ?? '',
+      channel: json['channel'] as String? ?? 'mobile',
       personaId: json['persona_id'] as String?,
+      createdAt: (json['created_at'] as num?)?.toInt(),
       updatedAt: (json['updated_at'] as num?)?.toInt(),
-      lastMessageRole: last is Map ? last['role'] as String? : null,
-      lastMessageText: last is Map ? last['text'] as String? : null,
-      lastMessageAt: last is Map ? (last['at'] as num?)?.toInt() : null,
-      messageCount: (json['message_count'] as num?)?.toInt() ?? 0,
+      turns: (json['turns'] as num?)?.toInt() ?? 0,
+      previewRole: preview?['role'] as String?,
+      previewText: preview?['text'] as String?,
     );
   }
-}
-
-/// 会话分页结果（cursor 不透明）。
-class ConversationPage {
-  const ConversationPage({required this.conversations, this.nextCursor});
-
-  final List<Conversation> conversations;
-  final String? nextCursor;
-
-  bool get hasMore => nextCursor != null;
 }
