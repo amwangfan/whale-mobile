@@ -20,14 +20,24 @@ import 'run_feed.dart';
 /// 断线语义：连接在 done 前关闭 → 补发本地合成 [RunFeedAborted]，由控制器
 /// 把该轮显式标失败（不重发）。
 class ChatStreamV3 {
-  ChatStreamV3({String? baseUrl, String? token, HttpClient? httpClient})
+  ChatStreamV3(
+      {String? baseUrl,
+      String? token,
+      HttpClient? httpClient,
+      Future<String?> Function()? ticketProvider})
       : _baseUrlOverride = baseUrl,
         _tokenOverride = token,
-        _http = httpClient ?? HttpClient();
+        _http = httpClient ?? HttpClient(),
+        _ticketProvider = ticketProvider;
 
   final String? _baseUrlOverride;
   final String? _tokenOverride;
   final HttpClient _http;
+
+  /// C 路票据来源（当前有效 Link 票）。注意：core 的 /api/chat/stream 目前
+  /// 只校验 Bearer（X-Whale-Link-Ticket 校验为核心差距），本端先备好头，
+  /// core 就绪后即通；纯 C（无 token）部署下 SSE 退路暂不可用是已知差距。
+  final Future<String?> Function()? _ticketProvider;
 
   static const Duration connectTimeout = Duration(seconds: 15);
 
@@ -103,6 +113,7 @@ class ChatStreamV3 {
   }) async {
     final base = _baseUrlOverride ?? await DeviceConfig.baseUrl();
     final token = _tokenOverride ?? await DeviceConfig.apiToken();
+    final ticket = await _ticketProvider?.call();
     final uri = Uri.parse('$base/api/chat/stream');
     final HttpClientRequest req;
     try {
@@ -112,6 +123,9 @@ class ChatStreamV3 {
           .set(HttpHeaders.contentTypeHeader, 'application/json; charset=utf-8');
       if (token.isNotEmpty) {
         req.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
+      }
+      if (ticket != null && ticket.isNotEmpty) {
+        req.headers.set('X-Whale-Link-Ticket', ticket);
       }
       req.write(jsonEncode(<String, dynamic>{
         'text': text,

@@ -15,10 +15,6 @@ class DeviceConfig {
   static const String prefBaseUrl = 'whale_core_base_url';
   static const String prefToken = 'whale_core_api_token';
 
-  /// C 鉴权（目标态）：设备线签发的短期 Link ticket（900s 绑 device_id）。
-  /// core 侧实现中，接口先留（A 期为空 → hello 走 api_token）。
-  static const String prefLinkTicket = 'whale_link_ticket';
-
   /// 联调注入默认值（生产不内置任何凭据）。
   /// 2026-11-24 收敛契约 §4.2：base_url flavor 化——默认=生产公网 https://rayneo.wangfanlab.com
   /// （不再硬编码模拟器回环）；staging 联调经 --dart-define=WM_CORE_BASE_URL 注入
@@ -48,12 +44,8 @@ class DeviceConfig {
     return defaultToken;
   }
 
-  /// 读取生效的 Link ticket（C 鉴权；当前恒空，core 侧 ticket 签发实现中）。
-  static Future<String?> linkTicket() async {
-    final prefs = await SharedPreferences.getInstance();
-    final v = prefs.getString(prefLinkTicket)?.trim();
-    return (v != null && v.isNotEmpty) ? v : null;
-  }
+  // C 鉴权（link_ticket）不设静态存储：票据由 LinkTicketService 动态换取
+  // （POST /api/devices/link_ticket，§11 签名四头，900s TTL，过期重签）。
 
   static Future<void> save({String? baseUrl, String? token}) async {
     final prefs = await SharedPreferences.getInstance();

@@ -8,6 +8,7 @@ import '../models/message.dart';
 import '../services/artifact_service.dart';
 import '../services/chat_attachments.dart';
 import '../services/chat_images.dart';
+import '../services/chat_stream_v3.dart';
 import '../services/link_session.dart';
 import '../widgets/attachment_picker.dart';
 import '../widgets/message_bubble.dart';
@@ -58,8 +59,11 @@ class _ChatPageState extends State<ChatPage> {
 
   ChatController? _controller;
   ApprovalController? _approvals;
-  late final ArtifactService _artifacts =
-      widget.artifactService ?? ArtifactService();
+  late final ArtifactService _artifacts = widget.artifactService ??
+      ArtifactService(
+          // C 路免主 token 上机：无 token 时用当前 Link 票（X-Whale-Link-Ticket）
+          ticketProvider: () async =>
+              _session.ticketService.currentTicketValue);
   late final ChatAttachments _picker = widget.attachments ?? ChatAttachments();
 
   final TextEditingController _input = TextEditingController();
@@ -93,7 +97,13 @@ class _ChatPageState extends State<ChatPage> {
   void _onSession() {
     final api = _session.api;
     if (_controller == null && api != null) {
-      _useController(ChatController(conversationId: widget.conversationId, api: api));
+      _useController(ChatController(
+        conversationId: widget.conversationId,
+        api: api,
+        sse: ChatStreamV3(
+            ticketProvider: () async =>
+                _session.ticketService.currentTicketValue),
+      ));
     }
     _safeSetState();
   }
