@@ -6,7 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * ULID 与带前缀 ID（contracts/v2 §3）单元测试。
+ * ULID 与带前缀 ID（contracts/device §3）单元测试。
  * 纯 JVM，无需 Robolectric。
  */
 class UlidAndIdsV2Test {

@@ -8,7 +8,7 @@ import java.io.StringReader
 import java.security.MessageDigest
 
 /**
- * contracts/v2 设备动作族纯逻辑（可单测）：参数校验、坐标越界、UI 树解析、
+ * contracts/device 设备动作族纯逻辑（可单测）：参数校验、坐标越界、UI 树解析、
  * §8 稳定键重校验与 §8 元素指纹。
  *
  * 纪律（与 v1 modules/agent 一致，字段对齐 v2）：

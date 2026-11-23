@@ -6,8 +6,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * V2 信封编解码（contracts/v2 §2）单元测试。
- * 黄金示例对照：contracts/v2/examples 目录下的示例 JSON。
+ * V2 信封编解码（contracts/device §2）单元测试。
+ * 黄金示例对照：contracts/device/examples 目录下的示例 JSON。
  */
 class EnvelopeCodecV2Test {
     @Test fun integerFieldsRejectFractionalAndOverflowValues() {
@@ -48,7 +48,7 @@ class EnvelopeCodecV2Test {
         "source" to "screen_memo",
         "summary" to "浏览了一个关于 AI 机器人的视频",
         "privacy_class" to "owner_private",
-        "schema_version" to "2.0",
+        "schema_version" to "1.0",
     )
 
     @Test
@@ -56,7 +56,7 @@ class EnvelopeCodecV2Test {
         val env = EnvelopeV2.uplink(MsgTypeV2.EXPERIENCE_EVENT, 412, samplePayload(), ts = 1794052840000L)
         val json = env.toJson()
         val decoded = EnvelopeCodecV2.decode(json)
-        assertEquals("2.0", decoded.v)
+        assertEquals("1.0", decoded.v)
         assertEquals(env.id, decoded.id)
         assertTrue(Ulid.isValid(decoded.id))
         assertEquals(MsgTypeV2.EXPERIENCE_EVENT, decoded.type)
@@ -76,10 +76,10 @@ class EnvelopeCodecV2Test {
 
     @Test
     fun `decode matches golden experience event example`() {
-        // 逐字取自 contracts/v2/examples/experience.event.json
+        // 逐字取自 contracts/device/examples/experience.event.json
         val json = """
         {
-          "v": "2.0",
+          "v": "1.0",
           "id": "01J9XK3EM8TQ2ZP0VN6W4RA705",
           "type": "experience.event",
           "ts": 1794052840000,
@@ -94,7 +94,7 @@ class EnvelopeCodecV2Test {
             "summary": "浏览了一个关于 AI 机器人的视频",
             "privacy_class": "owner_private",
             "evidence_ref": "capture:segment_01J9XK3EM8TQ2ZP0VN6W4RA8II",
-            "schema_version": "2.0",
+            "schema_version": "1.0",
             "extras": {"package": "com.example.video"}
           }
         }
@@ -125,7 +125,7 @@ class EnvelopeCodecV2Test {
     @Test
     fun `decode rejects non ulid message id`() {
         val json = """
-        {"v":"2.0","id":"not-a-ulid","type":"device.heartbeat","ts":1,"seq":1,"dir":"uplink","payload":{}}
+        {"v":"1.0","id":"not-a-ulid","type":"device.heartbeat","ts":1,"seq":1,"dir":"uplink","payload":{}}
         """.trimIndent()
         assertThrowsV2 { EnvelopeCodecV2.decode(json) }
     }
@@ -133,7 +133,7 @@ class EnvelopeCodecV2Test {
     @Test
     fun `decode rejects bad version shape`() {
         val json = """
-        {"v":"v2","id":"01J9XK3EM8TQ2ZP0VN6W4RA7YC","type":"device.heartbeat","ts":1,"seq":1,"dir":"uplink","payload":{}}
+        {"v":"v1","id":"01J9XK3EM8TQ2ZP0VN6W4RA7YC","type":"device.heartbeat","ts":1,"seq":1,"dir":"uplink","payload":{}}
         """.trimIndent()
         assertThrowsV2 { EnvelopeCodecV2.decode(json) }
     }
@@ -141,11 +141,11 @@ class EnvelopeCodecV2Test {
     @Test
     fun `decode rejects out of range ts and seq`() {
         val tooBigTs = """
-        {"v":"2.0","id":"01J9XK3EM8TQ2ZP0VN6W4RA7YC","type":"device.heartbeat","ts":4102444800001,"seq":1,"dir":"uplink","payload":{}}
+        {"v":"1.0","id":"01J9XK3EM8TQ2ZP0VN6W4RA7YC","type":"device.heartbeat","ts":4102444800001,"seq":1,"dir":"uplink","payload":{}}
         """.trimIndent()
         assertThrowsV2 { EnvelopeCodecV2.decode(tooBigTs) }
         val negativeSeq = """
-        {"v":"2.0","id":"01J9XK3EM8TQ2ZP0VN6W4RA7YC","type":"device.heartbeat","ts":1,"seq":-1,"dir":"uplink","payload":{}}
+        {"v":"1.0","id":"01J9XK3EM8TQ2ZP0VN6W4RA7YC","type":"device.heartbeat","ts":1,"seq":-1,"dir":"uplink","payload":{}}
         """.trimIndent()
         assertThrowsV2 { EnvelopeCodecV2.decode(negativeSeq) }
     }
@@ -154,18 +154,19 @@ class EnvelopeCodecV2Test {
     fun `decode tolerates unknown message type for forward compatibility`() {
         // §4：未知 type 允许通过信封校验（上层静默忽略）。
         val json = """
-        {"v":"2.0","id":"01J9XK3EM8TQ2ZP0VN6W4RA7YC","type":"future.message","ts":1,"seq":1,"dir":"downlink","payload":{}}
+        {"v":"1.0","id":"01J9XK3EM8TQ2ZP0VN6W4RA7YC","type":"future.message","ts":1,"seq":1,"dir":"downlink","payload":{}}
         """.trimIndent()
         assertEquals("future.message", EnvelopeCodecV2.decode(json).type)
     }
 
     @Test
     fun `version major gate distinguishes supported and foreign major`() {
-        assertTrue(EnvelopeCodecV2.isSupportedVersion("2.0"))
-        assertTrue(EnvelopeCodecV2.isSupportedVersion("2.15"))
-        assertFalse(EnvelopeCodecV2.isSupportedVersion("1.0"))
-        assertFalse(EnvelopeCodecV2.isSupportedVersion("3.0"))
-        assertEquals(2, EnvelopeCodecV2.majorOf("2.0"))
+        // 2026-11-23 clean break：1.x 为唯一受支持 major；2.x（旧 V2）即 foreign major。
+        assertTrue(EnvelopeCodecV2.isSupportedVersion("1.0"))
+        assertTrue(EnvelopeCodecV2.isSupportedVersion("1.15"))
+        assertFalse(EnvelopeCodecV2.isSupportedVersion("2.0"))
+        assertFalse(EnvelopeCodecV2.isSupportedVersion("0.9"))
+        assertEquals(1, EnvelopeCodecV2.majorOf("1.0"))
         assertEquals(3, EnvelopeCodecV2.majorOf("3.1"))
     }
 

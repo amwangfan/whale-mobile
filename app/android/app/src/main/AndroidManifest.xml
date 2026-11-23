@@ -14,7 +14,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
-    <!-- contracts/v2 §12.2：MediaProjection 内置录制（Root 版）前台服务类型（API 34+ 必需） -->
+    <!-- contracts/device §12.2：MediaProjection 内置录制（Root 版）前台服务类型（API 34+ 必需） -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
@@ -57,7 +57,7 @@
             android:value="2" />
 
         <!-- ==================== 节点服务（BG-01，WSS 长连前台载体） ==================== -->
-        <!-- contracts/v2 运行时前台载体（NodeRuntimeV2；v1 栈已下线，本服务为唯一
+        <!-- contracts/device 运行时前台载体（NodeRuntimeV2；v1 栈已下线，本服务为唯一
              前台载体）。WSS/设备身份/上行队列归 Application 级 NodeRuntimeV2 单例
              持有；仅由前台场景显式启动（UI connectV2 / 用户开关），不做后台隐式
              拉起；Android 15 dataSync 时长受限时按系统降级，不绕过。 -->
@@ -155,7 +155,7 @@
                 android:resource="@xml/whale_capture_accessibility" />
         </service>
 
-        <!-- ==================== 屏幕录制模块（contracts/v2 §12.2，Root 版能力 device.screen.record） ==================== -->
+        <!-- ==================== 屏幕录制模块（contracts/device §12.2，Root 版能力 device.screen.record） ==================== -->
         <!-- MediaProjection 录制前台载体：可见通知 + 通知「停止」入口；
              能力注册按构建变体门控（daily 构建不注册 handler），服务本身两变体声明。 -->
         <service

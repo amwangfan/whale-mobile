@@ -4,7 +4,7 @@ import android.content.Context
 import android.util.Log
 
 /**
- * experience.event 上行队列（contracts/v2 §9/§16）。
+ * experience.event 上行队列（contracts/device §9/§16）。
  *
  * 底层为 [OfflineQueue] 的加密持久化机制（payload 应用层 AES/GCM 加密、
  * 容量治理、fail-closed 丢弃、drop_on_pause；该类自 v1 栈迁入本包），
@@ -111,8 +111,8 @@ class EventOutboxV2(
         private const val TAG = "WhaleOutboxV2"
         private const val FLUSH_BATCH = 100
 
-        /** experience.event payload 的 schema_version（§9 对象合同版本）。 */
-        const val SCHEMA_VERSION = "2.0"
+        /** experience.event payload 的 schema_version（§9 对象合同版本；2026-11-23 clean break 起为 1.x）。 */
+        const val SCHEMA_VERSION = "1.0"
         const val DEFAULT_DB_NAME = "whale_transport_v2.db"
         const val DEFAULT_CAPACITY = 1000
     }

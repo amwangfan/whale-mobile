@@ -4,7 +4,7 @@ import 'package:flutter/services.dart';
 
 import 'transport_client.dart';
 
-/// EventChannel 上行给 Dart 的 action.request（contracts/v2 §7）。
+/// EventChannel 上行给 Dart 的 action.request（contracts/device §7）。
 class ActionRequestV2 {
   ActionRequestV2.fromMap(Map<String, dynamic> map)
       : actionId = map['action_id'] as String? ?? '',
@@ -71,7 +71,7 @@ class TransportErrorV2 {
   final String refId;
 }
 
-/// contracts/v2 控制通道客户端的 Dart 封装（Kotlin 侧见 TransportBridgeV2）。
+/// contracts/device 控制通道客户端的 Dart 封装（Kotlin 侧见 TransportBridgeV2）。
 ///
 /// 通道：MethodChannel `whale/transport_v2` + EventChannel `whale/transport_v2/events`。
 /// 本地数据查询面（notificationInbox.*/capture.*/favorites.*/backup.*/

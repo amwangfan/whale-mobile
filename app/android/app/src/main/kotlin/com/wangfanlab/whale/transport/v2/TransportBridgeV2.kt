@@ -38,8 +38,9 @@ import io.flutter.plugin.common.MethodChannel
  * - disconnectV2() → null（同时停止前台服务）
  * - getStateV2() → WssClientV2.getStateInfo + runtime_started/node_service_running 等
  * - getIdentityV2() → {device_id, public_key_hex}
- * - getPairingInfoV2() → 配对码展示数据（device_id/public_key_hex/app_flavor/
- *     protocol_version/capabilities，§1 设备上屏配对）
+ * - getPairingInfoV2() → 配对诊断数据（device_id/public_key_hex/app_flavor/
+ *     protocol_version/capabilities；2026-11-23 起配对改 owner-first 兑换码，
+ *     本面仅供诊断核对，不再是配对入口）
  * - setStatusV2({status: online|connected_only|paused}) → true
  * - sendExperienceEvent({kind, occurred_at?, source?, summary, privacy_class?,
  *     evidence_ref?, task_id?, run_id?, extras?, drop_on_pause?, event_id?}) → {event_id}

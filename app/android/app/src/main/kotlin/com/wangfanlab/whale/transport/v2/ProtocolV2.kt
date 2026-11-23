@@ -7,22 +7,28 @@ import com.google.gson.JsonObject
 import java.security.SecureRandom
 
 /**
- * contracts/v2 协议基础设施：信封编解码、ULID、带前缀 ID、能力枚举、回执状态机、错误码。
+ * contracts/device 协议基础设施：信封编解码、ULID、带前缀 ID、能力枚举、回执状态机、错误码。
  *
  * 本文件为纯 JVM 实现（仅依赖 Gson），不引用 android.*，可在本地单元测试运行。
- * 协议事实源：contracts/v2/PROTOCOL.md 与 contracts/v2/messages 下各消息 schema；
+ * 协议事实源：contracts/device/PROTOCOL.md 与 contracts/device/messages 下各消息 schema；
  * 端侧不导入 core 代码，两侧各自校验。
  *
- * 注意：本文件中的能力枚举（[CapabilitiesV2.ALL]）与 contracts/v2 §5.1 逐字一致，
+ * 2026-11-23 clean break（§18）：路径去版本化 + 信封收紧为 1.x；旧 /api/v2 路径与
+ * 信封 2.x 在 core 侧已彻底移除（fail-closed，无容忍窗），端侧无回退档。
+ *
+ * 注意：本文件中的能力枚举（[CapabilitiesV2.ALL]）与 contracts/device §5.1 逐字一致，
  * 错误码（[ErrorCodeV2.ALL]）与 §15 / error.schema.json / action.receipt.schema.json
  * 逐字一致——Kotlin 无法运行时读 schema，协议变更时必须人工同步本文件。
  */
 
-const val PROTOCOL_VERSION_V2 = "2.0"
-const val SUPPORTED_MAJOR_V2 = 2
+const val PROTOCOL_VERSION_V2 = "1.0"
+const val SUPPORTED_MAJOR_V2 = 1
 
-/** §1：WSS 控制通道路径。 */
-const val WSS_PATH_V2 = "/api/v2/devices/ws"
+/** §1：WSS 控制通道路径（2026-11-23 clean break 去版本化；配对后可被应答 ws_path 覆盖）。 */
+const val WSS_PATH_V2 = "/api/devices/ws"
+
+/** clean break 前存量的旧版 WSS 路径（仅用于识别迁移，不作连接目标）。 */
+const val WSS_PATH_LEGACY_V2 = "/api/v2/devices/ws"
 
 /** §1 约束：单帧 ≤ 256 KiB（UTF-8 字节数）。 */
 const val MAX_FRAME_BYTES_V2 = 256 * 1024
@@ -40,6 +46,10 @@ const val MAX_SEQ = 9007199254740991L
  * 打到网关根路径、到不了设备路由（对端只见 502/404，零设备连接）。
  * 仅在路径完全缺失时拼接；已带任何路径的输入原样返回（不猜测改写）；无法识别的
  * 输入不猜不改（首尾空白会先裁掉），由连接层如实报错。scheme 大小写不敏感、原写法保留。
+ *
+ * 2026-11-23 clean break 单向迁移：存量设备持久化的旧地址（恰好以
+ * [WSS_PATH_LEGACY_V2] 结尾，可带 query）改写到去版本化新路径——这是**迁移**而非
+ * 回退档（core 侧旧路径已死，不迁就连不上）；其他路径一律不改写。
  */
 fun normalizeGatewayUrlV2(url: String): String {
     val t = url.trim()
@@ -48,6 +58,9 @@ fun normalizeGatewayUrlV2(url: String): String {
     val tail = m.groups[2]?.value.orEmpty()
     return when {
         tail.isEmpty() || tail == "/" -> authority + WSS_PATH_V2
+        tail == WSS_PATH_LEGACY_V2 -> authority + WSS_PATH_V2
+        tail.startsWith("$WSS_PATH_LEGACY_V2?") || tail.startsWith("$WSS_PATH_LEGACY_V2#") ->
+            authority + WSS_PATH_V2 + tail.substring(WSS_PATH_LEGACY_V2.length)
         tail[0] == '?' || tail[0] == '#' -> authority + WSS_PATH_V2 + tail
         else -> t
     }
@@ -163,7 +176,7 @@ object IdsV2 {
 // ------------------------------------------------------------- 能力枚举（§5.1）
 
 /**
- * V2 能力命名空间——**与 contracts/v2 §5.1 逐字一致，变更须同步**。
+ * V2 能力命名空间——**与 contracts/device §5.1 逐字一致，变更须同步**。
  * （Kotlin 无法运行时读 schema，本集合为 §5.1 的逐字抄录，共 33 项。）
  */
 object CapabilitiesV2 {
@@ -336,7 +349,7 @@ data class EnvelopeV2(
     fun toJsonBytes(): ByteArray = toJson().toByteArray(Charsets.UTF_8)
 
     companion object {
-        /** 构造上行信封：v=2.0、id 为新生 ULID、dir=uplink。seq 必须来自本连接的 SeqCounter。 */
+        /** 构造上行信封：v=[PROTOCOL_VERSION_V2]、id 为新生 ULID、dir=uplink。seq 必须来自本连接的 SeqCounter。 */
         fun uplink(type: String, seq: Long, payload: Map<String, Any?>, ts: Long): EnvelopeV2 =
             EnvelopeV2(
                 v = PROTOCOL_VERSION_V2,
@@ -352,7 +365,7 @@ data class EnvelopeV2(
 
 object EnvelopeCodecV2 {
     private val gson = GsonBuilder().setStrictness(Strictness.STRICT).create()
-    private val V_PATTERN = Regex("^2\\.[0-9]+$")
+    private val V_PATTERN = Regex("^1\\.[0-9]+$")
     private val ANY_VERSION_PATTERN = Regex("^[0-9]+\\.[0-9]+$")
     private val INT_LITERAL = Regex("^-?[0-9]+$")
 
@@ -400,7 +413,7 @@ object EnvelopeCodecV2 {
         return EnvelopeV2(v, id, type, ts, seq, dir, payload)
     }
 
-    /** §2/§4：是否为受支持的 V2 版本（major == 2）。 */
+    /** §2/§4：是否为受支持的协议版本（major == [SUPPORTED_MAJOR_V2]，即 1.x）。 */
     fun isSupportedVersion(v: String): Boolean = V_PATTERN.matches(v)
 
     /** 解析 "major.minor" 的 major；无法解析返回 null。 */

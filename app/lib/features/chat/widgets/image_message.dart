@@ -5,7 +5,7 @@ import '../models/attachment.dart';
 
 /// 图片消息（GIF/WebP 由 Flutter 图片解码直接支持）。
 ///
-/// 经 `GET /api/v2/attachments/{id}` 拉取，需要 Bearer 鉴权头——
+/// 经 `GET /api/attachments/{id}` 拉取，需要 Bearer 鉴权头——
 /// 由调用方（chat_page）从 ChatApi.authHeaders() 解析传入。
 class ImageMessage extends StatelessWidget {
   const ImageMessage({

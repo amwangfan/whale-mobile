@@ -11,7 +11,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * 协议组包与解析测试（contracts/v2 §13 + messages/notification.*.schema.json）。
+ * 协议组包与解析测试（contracts/device §13 + messages/notification.*.schema.json）。
  * 覆盖：ULID 格式、receipt/action/sync 信封组包、event/revoke 解析、协议上限截断。
  */
 @RunWith(RobolectricTestRunner::class)
@@ -48,7 +48,7 @@ class NotificationProtocolTest {
             atMs = 1_794_052_896_000,
         )
         val root = JsonParser.parseString(json).asJsonObject
-        assertEquals("2.0", root.get("v").asString)
+        assertEquals("1.0", root.get("v").asString)
         assertTrue(Regex("^[0-9A-HJKMNP-TV-Z]{26}$").matches(root.get("id").asString))
         assertEquals("notification.receipt", root.get("type").asString)
         assertEquals("uplink", root.get("dir").asString)
@@ -93,10 +93,10 @@ class NotificationProtocolTest {
     // ------------------------------------------------------------  解析
 
     @Test
-    fun `解析完整信封（contracts v2 黄金示例字段值）`() {
+    fun `解析完整信封（contracts-device 黄金示例字段值）`() {
         val envelope = """
         {
-          "v": "2.0",
+          "v": "1.0",
           "id": "01J9XK3EM8TQ2ZP0VN6W4RA722",
           "type": "notification.event",
           "ts": 1794052895000,

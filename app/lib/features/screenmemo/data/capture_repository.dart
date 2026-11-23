@@ -172,7 +172,7 @@ class ScreenSegment {
         closed: m['closed'] as bool? ?? true,
       );
 
-  /// 段级证据引用（`capture:segment_<ULID>`，contracts/v2 §10）。
+  /// 段级证据引用（`capture:segment_<ULID>`，contracts/device §10）。
   String get evidenceRef => 'capture:$segmentId';
 }
 

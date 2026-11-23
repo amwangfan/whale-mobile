@@ -5,9 +5,9 @@ import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 
 /**
- * contracts/v2 §13 notification.event 的端侧模型与解析（纯 JVM + Gson，可单测）。
+ * contracts/device §13 notification.event 的端侧模型与解析（纯 JVM + Gson，可单测）。
  *
- * 协议事实源：contracts/v2/messages/notification.event.schema.json。
+ * 协议事实源：contracts/device/messages/notification.event.schema.json。
  * 端侧解析是防御性的：schema 校验在传输层（WssClientV2，并行任务）做，
  * 这里再做一遍关键字段兜底，并按协议上限截断 title/body。
  */

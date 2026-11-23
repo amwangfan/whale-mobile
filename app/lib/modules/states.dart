@@ -106,7 +106,7 @@ enum ReceiptState {
 enum LinkState {
   online('online', '已连接', WhaleTone.aqua, '心跳正常，动作可下发'),
   degraded('degraded', '降级重连', WhaleTone.amber, '离线队列已加密，恢复后重放'),
-  awaitingAuth('awaiting_auth', '待配对', WhaleTone.violet, '等待 Core 审批配对码'),
+  awaitingAuth('awaiting_auth', '认证中', WhaleTone.violet, 'challenge/hello 握手中'),
   connecting('connecting', '连接中', WhaleTone.blue, 'Ed25519 挑战验签中'),
   disconnected('disconnected', '未连接', WhaleTone.slate, '采集继续，上行暂存本地');
 
@@ -124,3 +124,15 @@ enum LinkState {
     return null;
   }
 }
+
+/// 协议级错误码 → 主人可读的处置提示（版本 floor，contracts/device §4/§15）。
+///
+/// core 对未知 major 一律 `error.protocol_version` 后关连（fail-closed）；
+/// 端侧必须把这类终态翻译成明示文案，而不是留一次裸断连。
+/// 返回 null 表示无额外提示（调用方原样展示 code + message）。
+String? transportErrorHint(String code) => switch (code) {
+      'protocol_version' => '协议版本不匹配：请升级 App 或 Core 后重连',
+      'device_revoked' => '设备已被撤销：请到「我的 → Core 连接设置」重新配对',
+      'auth_failed' => '设备认证失败：请到「我的 → Core 连接设置」重新配对',
+      _ => null,
+    };

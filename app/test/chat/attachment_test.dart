@@ -4,7 +4,7 @@ import 'package:whale_mobile/features/chat/models/attachment.dart';
 import 'package:whale_mobile/features/chat/models/message.dart';
 
 void main() {
-  group('AttachmentRef 模型解析（contracts/v2 §11）', () {
+  group('AttachmentRef 模型解析（contracts/device §11）', () {
     test('完整字段解析', () {
       final ref = AttachmentRef.fromJson(const {
         'attachment_id': 'att_01J9XK3EM8TQ2ZP0VN6W4RA7YC',

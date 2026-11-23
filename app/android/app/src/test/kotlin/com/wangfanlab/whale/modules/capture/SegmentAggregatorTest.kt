@@ -149,7 +149,7 @@ class SegmentAggregatorTest {
                 appLabel = "视频", captureTimeMs = 1_000 + SegmentAggregator.GAP_MS)
             assertEquals(1, events.size)
 
-            // 队列里恰有一条 experience.event，字段与 contracts/v2 §9 对齐
+            // 队列里恰有一条 experience.event，字段与 contracts/device §9 对齐
             val batch = outbox.pendingBatch()
             assertEquals(1, batch.size)
             assertEquals(MsgTypeV2.EXPERIENCE_EVENT, batch[0].type)
@@ -158,7 +158,7 @@ class SegmentAggregatorTest {
             assertEquals("screen.segment_ready", p["kind"])
             assertEquals("screen_memo", p["source"])
             assertEquals("owner_private", p["privacy_class"])
-            assertEquals("2.0", p["schema_version"])
+            assertEquals("1.0", p["schema_version"])
             assertEquals("ba4bb14c75917cfc0e69fb7a1caf8ba3", p["device_id"])
             val ref = p["evidence_ref"] as String
             assertTrue("evidence_ref=$ref 应为 capture:segment_ 形态",

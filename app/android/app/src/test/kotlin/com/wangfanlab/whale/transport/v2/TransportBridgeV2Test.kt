@@ -204,7 +204,7 @@ class TransportBridgeV2Test {
         val r = call("getStateV2")
         @Suppress("UNCHECKED_CAST")
         val state = r.successValue as Map<String, Any?>
-        assertEquals("2.0", state["protocol"])
+        assertEquals("1.0", state["protocol"])
         assertEquals(runtime.identity.getDeviceId(), state["device_id"])
         assertEquals("disconnected", state["state"])
     }

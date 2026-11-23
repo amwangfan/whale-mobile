@@ -15,7 +15,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * experience.event 上行队列（contracts/v2 §9/§16）单元测试。
+ * experience.event 上行队列（contracts/device §9/§16）单元测试。
  * 覆盖：v2 全字段组装、加密往返（DB 无明文）、event_id 幂等、
  * sent/ack 状态机、断线回退、drop_on_pause、毒丸 event_id 防护。
  */
@@ -81,7 +81,7 @@ class EventOutboxV2Test {
         assertEquals(deviceId, payload["device_id"])
         assertEquals("screen_memo", payload["source"])
         assertEquals("owner_private", payload["privacy_class"])
-        assertEquals("2.0", payload["schema_version"])
+        assertEquals("1.0", payload["schema_version"])
         assertEquals("task_01J9XK3EM8TQ2ZP0VN6W4RA8BB", payload["task_id"])
         @Suppress("UNCHECKED_CAST")
         val extras = payload["extras"] as Map<String, Any?>

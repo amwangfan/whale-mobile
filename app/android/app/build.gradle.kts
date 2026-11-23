@@ -33,7 +33,7 @@ android {
 
     // 主线二（双 APK）：同一代码库构建日常版/Root 版。Root 版独有能力
     // （Root Shell、设备控制、MediaProjection 录制等）只在 root 变体注册，
-    // 不靠 UI 隐藏（contracts/v2 §5.2 CapabilityRegistry）。
+    // 不靠 UI 隐藏（contracts/device §5.2 CapabilityRegistry）。
     flavorDimensions += "edition"
     productFlavors {
         create("daily") {

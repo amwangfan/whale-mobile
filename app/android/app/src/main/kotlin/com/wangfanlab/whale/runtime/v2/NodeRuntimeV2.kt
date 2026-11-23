@@ -55,7 +55,7 @@ import java.io.IOException
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * 节点运行时 V2（contracts/v2 装配）：WssClientV2 / ReceiptDispatcherV2 /
+ * 节点运行时 V2（contracts/device 装配）：WssClientV2 / ReceiptDispatcherV2 /
  * EventOutboxV2 / notification2 通知链 / 各模块执行器的唯一所有者。
  *
  * 纪律（v1 栈已下线，本运行时为唯一节点运行时）：
@@ -602,7 +602,11 @@ class NodeRuntimeV2 private constructor(
         return info
     }
 
-    /** 配对码展示数据（§1 配对：设备上屏 → 主人在 core 可信管理端确认登记）。 */
+    /**
+     * 配对诊断数据（device_id/公钥/能力集）。
+     * 2026-11-23 clean break 起配对为 owner-first（主人控制台出 6 位码，手机经
+     * `POST /api/devices/pair` 兑换），本数据仅供诊断与人工核对，不再是配对入口。
+     */
     fun getPairingInfo(): Map<String, Any?> = mapOf(
         "device_id" to identity.getDeviceId(),
         "public_key_hex" to identity.getPublicKeyHex(),
@@ -903,6 +907,13 @@ class NodeRuntimeV2 private constructor(
         if (code == ErrorCodeV2.DEVICE_REVOKED || code == ErrorCodeV2.AUTH_FAILED) {
             appContext.getSharedPreferences(NODE_PREFS_NAME_V2, Context.MODE_PRIVATE).edit()
                 .putBoolean(KEY_REVOKED, code == ErrorCodeV2.DEVICE_REVOKED)
+                .putBoolean(KEY_WAS_CONNECTED, false)
+                .apply()
+        }
+        // 版本 floor（§4）：core fail-closed 拒绝协议 major 时，清恢复标志防
+        // 重启/网络恢复后再撞同一堵墙；UI 层据 code 给「需升级 App/核心」明示。
+        if (code == ErrorCodeV2.PROTOCOL_VERSION) {
+            appContext.getSharedPreferences(NODE_PREFS_NAME_V2, Context.MODE_PRIVATE).edit()
                 .putBoolean(KEY_WAS_CONNECTED, false)
                 .apply()
         }

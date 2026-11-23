@@ -4,7 +4,7 @@ import java.util.concurrent.atomic.AtomicLong
 
 /**
  * 每方向各自单调递增的序号（自 v1 transport/Envelope.kt 迁入 v2 包；
- * contracts/v2 §4：每条 WS 连接上行从 1 重新开始，下行观察记录）。
+ * contracts/device §4：每条 WS 连接上行从 1 重新开始，下行观察记录）。
  */
 class SeqCounter(start: Long = 0) {
     private val value = AtomicLong(start)

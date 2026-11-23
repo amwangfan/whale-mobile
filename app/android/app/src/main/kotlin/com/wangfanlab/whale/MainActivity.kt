@@ -12,14 +12,14 @@ class MainActivity : FlutterActivity() {
     /** `whale/transport` 桥（v1 栈下线后的瘦身版：仅本地数据查询面 + 模块配置面）。 */
     private var transportBridge: TransportBridge? = null
 
-    /** contracts/v2 桥（`whale/transport_v2`；唯一控制面通道）。 */
+    /** contracts/device 桥（`whale/transport_v2`；唯一控制面通道）。 */
     private var transportBridgeV2: TransportBridgeV2? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         transportBridge = TransportBridge(this, flutterEngine.dartExecutor.binaryMessenger)
         transportBridgeV2 = TransportBridgeV2(this, flutterEngine.dartExecutor.binaryMessenger)
-        // contracts/v2 §12.2（必要集成）：冷启动 intent 携带录制授权请求时发起 consent
+        // contracts/device §12.2（必要集成）：冷启动 intent 携带录制授权请求时发起 consent
         maybeRequestRecordingConsent(intent)
     }
 
@@ -28,12 +28,12 @@ class MainActivity : FlutterActivity() {
         // singleTop 热启动：通知点击深链 extras 落到新 intent；
         // 更新 activity.intent 供桥层 getLaunchRoute 读取并消费。
         setIntent(intent)
-        // contracts/v2 §12.2（必要集成）：热启动 intent 携带录制授权请求
+        // contracts/device §12.2（必要集成）：热启动 intent 携带录制授权请求
         maybeRequestRecordingConsent(intent)
     }
 
     /**
-     * MediaProjection consent hook（contracts/v2 §12.2 必要集成，非 Flutter 改动）：
+     * MediaProjection consent hook（contracts/device §12.2 必要集成，非 Flutter 改动）：
      * intent 携带 [RecordingConsent.EXTRA_REQUEST_CONSENT] 时弹系统录屏授权；
      * 结果经 [RecordingConsent.onResult] 交给 RecordingService 消费（单次有效）。
      */

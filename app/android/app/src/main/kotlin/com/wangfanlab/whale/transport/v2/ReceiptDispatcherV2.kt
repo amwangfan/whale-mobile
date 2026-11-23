@@ -11,7 +11,7 @@ import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 
 /**
- * 下行动作幂等去重表（contracts/v2 §16）：跨重启持久化，idempotency_key 主键。
+ * 下行动作幂等去重表（contracts/device §16）：跨重启持久化，idempotency_key 主键。
  *
  * - 与 v1 action_dedup 语义相同（首终态不可翻案），但状态机为 V2
  *   （succeeded/failed/timeout/cancelled/unknown），故独立建表/独立 DB；
@@ -174,7 +174,7 @@ class ActionDedupStoreV2(
 }
 
 /**
- * action.request 分发器（contracts/v2 §7/§16）。
+ * action.request 分发器（contracts/device §7/§16）。
  *
  * 职责：
  * - 结构校验（action_id/capability/idempotency_key/timeout_ms/expires_at/authorized_scope）；

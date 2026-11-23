@@ -4,7 +4,7 @@ import com.google.gson.Gson
 import java.security.SecureRandom
 
 /**
- * contracts/v2 §13 上行消息（notification.receipt / notification.action / notification.sync）
+ * contracts/device §13 上行消息（notification.receipt / notification.action / notification.sync）
  * 的组包与 ID 生成。纯 JVM 实现，可在本地单元测试运行。
  *
  * 上行发送抽象 [NotificationUplinkSender]：本模块只定义接口，不依赖 WssClientV2
@@ -44,7 +44,8 @@ object Ulid {
 
 /** v2 上行信封组包（字段顺序与 schema 对齐，便于抓包比对黄金示例）。 */
 object NotificationProtocol {
-    const val PROTOCOL_VERSION = "2.0"
+    // 2026-11-23 clean break：信封版本 1.x（contracts/device §2）。
+    const val PROTOCOL_VERSION = "1.0"
     const val DIR_UPLINK = "uplink"
 
     private val gson = Gson()

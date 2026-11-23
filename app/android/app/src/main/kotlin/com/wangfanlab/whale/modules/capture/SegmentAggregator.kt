@@ -10,7 +10,7 @@ import com.wangfanlab.whale.transport.v2.Ulid
  *   → 归入当前段（追加证据 `capture:<rowId>`）；
  * - 否则（换包名 / 间隔到阈值）先封口当前段（产出 segment_ready 事件素材），
  *   再开新段；
- * - segment_id 形如 `segment_<ULID>`（contracts/v2 §9 示例形态，
+ * - segment_id 形如 `segment_<ULID>`（contracts/device §9 示例形态，
  *   evidence_ref = `capture:segment_<ULID>`）。
  *
  * 纯存储层逻辑（不依赖位图/服务），Robolectric 可测；时间源可注入以测边界。

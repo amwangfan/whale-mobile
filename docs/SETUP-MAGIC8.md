@@ -15,26 +15,23 @@
 
 ## 2. Whale Mobile 设置
 
-1. 打开 Whale App（首次会自动生成设备身份，主页显示 device_id 与公钥）
+1. 打开 Whale App（首次会自动生成设备身份）
 2. 在「ScreenMemo」卡片粘贴上一步的 token → 保存 token → 点「测试连接」应显示运行中
-3. 把 device_id 与公钥发给管理员（或手机截图）
 
-## 3. 管理员配对（N100 上执行）
+## 3. 配对（owner-first，2026-11-23 clean break 起）
 
-```bash
-TOKEN=$(cat /tmp/whale-dev/api_token)
-curl -s -X POST http://127.0.0.1:8190/api/v1/devices/pair \
-  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"pubkey_hex":"<手机公钥>","label":"magic8-pro"}'
-# 返回 6 位配对码 → 批准：
-curl -s -X POST http://127.0.0.1:8190/api/v1/devices/pair/approve \
-  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"code":"<配对码>"}'
-```
+1. 主人在 Core 控制台「设备 → 配对新设备」生成 6 位配对码（10 分钟有效，一次性）。
+2. 手机打开「我的 → Core 连接设置」，填好 Core 地址（配对 POST 与 WS 共用该基地址），
+   输入 6 位码（可选填设备备注）→ 点「配对并连接」。
+3. App 自动完成 `POST /api/devices/pair {code, pubkey_hex, label}` 兑换（免令牌），
+   立即激活并以应答 `ws_path`（`/api/devices/ws`）建立 WSS 长连。
+
+旧 device-first 流（手机出码 → 主人 curl `/api/v1/devices/pair*` 批准）已被 core 删除，无替代。
 
 ## 4. 联调
 
-手机上打开「传输」开关 → 状态应变「在线」。之后即可在 N100 上发起查询/通知验证。
+配对后状态应变「在线」；模块总览（旧版）页的「传输」开关可手动断/连。
+之后即可在 N100 上发起查询/通知验证。
 
 ## 注意
 

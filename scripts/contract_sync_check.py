@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""跨仓 V2 契约漂移校验（issue #46）。
+"""跨仓契约漂移校验（issue #46）。
 
-逐文件比较两个 checkout 的 ``contracts/v2/`` 约定范围：
+逐文件比较两个 checkout 的 ``contracts/device/`` 约定范围
+（2026-11-23 clean break：由 ``contracts/v2/`` 更名，信封 1.x）：
 
 - ``PROTOCOL.md``
 - ``messages/*.schema.json``
@@ -9,9 +10,9 @@
 - ``examples/*.json``
 - ``objects/examples/*.json``
 
-canonical source 是 **whale-mobile**（``contracts/v2/README.md`` 与
-``docs/devices.md`` 已声明）。任一侧多文件、缺文件或内容不同都算漂移。
-旧 V1 已退役，不再参与比较。
+canonical source 是 **whale-core** 的 ``contracts/device/``（PROTOCOL.md 首行
+已声明为两侧唯一协议事实源；whale-mobile 仓为镜像）。任一侧多文件、缺文件
+或内容不同都算漂移。旧 V1 与旧 contracts/v2 均已退役，不再参与比较。
 
 用法::
 
@@ -39,7 +40,7 @@ SCOPE_GLOBS = (
 
 
 def collect(root: Path) -> "dict[str, Path]":
-    base = root / "contracts" / "v2"
+    base = root / "contracts" / "device"
     found: dict[str, Path] = {}
     for name in SCOPE_FILES:
         path = base / name
@@ -58,7 +59,7 @@ def compare(a_root: Path, b_root: Path) -> "tuple[list[str], int]":
     total = len(set(a_files) | set(b_files))
     for rel in sorted(set(a_files) | set(b_files)):
         in_a, in_b = rel in a_files, rel in b_files
-        tag = f"contracts/v2/{rel}"
+        tag = f"contracts/device/{rel}"
         if in_a and not in_b:
             problems.append(f"ONLY-IN-A  {tag}")
         elif in_b and not in_a:
@@ -82,8 +83,8 @@ def main(argv: "list[str] | None" = None) -> int:
         parser.error("需要 --core/--mobile 或 --a/--b")
     a_root, b_root = Path(a), Path(b)
     for label, root in (("A", a_root), ("B", b_root)):
-        if not (root / "contracts" / "v2").is_dir():
-            print(f"error: {label} 侧 {root} 缺少 contracts/v2/", file=sys.stderr)
+        if not (root / "contracts" / "device").is_dir():
+            print(f"error: {label} 侧 {root} 缺少 contracts/device/", file=sys.stderr)
             return 2
 
     problems, total = compare(a_root, b_root)
@@ -92,17 +93,17 @@ def main(argv: "list[str] | None" = None) -> int:
         for line in problems:
             print(f"  {line}")
         print(
-            "\n处置：先在 canonical（whale-mobile）落定变更，再整体同步到 "
-            "whale-core 镜像；不要两侧分别改。"
+            "\n处置：先在 canonical（whale-core contracts/device/）落定变更，再整体 "
+            "同步到 whale-mobile 镜像；不要两侧分别改。"
         )
         return 1
-    base = a_root / "contracts" / "v2"
+    base = a_root / "contracts" / "device"
     missing = [name for name in SCOPE_FILES if not (base / name).is_file()]
     missing += [pattern for pattern in SCOPE_GLOBS if not any(base.glob(pattern))]
     if missing:
-        print(f"error: contracts/v2 不完整，缺少: {', '.join(missing)}", file=sys.stderr)
+        print(f"error: contracts/device 不完整，缺少: {', '.join(missing)}", file=sys.stderr)
         return 2
-    print(f"ok: contracts/v2 范围内 {total} 个文件两侧一致")
+    print(f"ok: contracts/device 范围内 {total} 个文件两侧一致")
     return 0
 
 

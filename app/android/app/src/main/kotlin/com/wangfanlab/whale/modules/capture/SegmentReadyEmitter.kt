@@ -4,7 +4,7 @@ import android.util.Log
 import com.wangfanlab.whale.transport.v2.EventOutboxV2
 
 /**
- * segment_ready 经历事件产出（Phase 3，contracts/v2 §9）。
+ * segment_ready 经历事件产出（Phase 3，contracts/device §9）。
  *
  * 段封口（[SegmentAggregator] 换段/flush）时把段摘要写入 v2 上行队列：
  * - kind=`screen.segment_ready`、source=`screen_memo`、

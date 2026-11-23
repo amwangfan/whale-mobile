@@ -90,10 +90,29 @@ void main() {
     test('五值线名 + hint 对齐', () {
       expect(LinkState.values.map((v) => v.wire).toList(),
           ['online', 'degraded', 'awaiting_auth', 'connecting', 'disconnected']);
-      expect(LinkState.awaitingAuth.label, '待配对');
+      // 2026-11-23 clean break：配对改 owner-first 兑换码，awaiting_auth 不再是
+      // 「等主人批准配对码」，而是 challenge/hello 认证握手中。
+      expect(LinkState.awaitingAuth.label, '认证中');
       expect(LinkState.awaitingAuth.tone, WhaleTone.violet);
       expect(LinkState.connecting.hint, 'Ed25519 挑战验签中');
       expect(LinkState.degraded.hint, '离线队列已加密，恢复后重放');
+    });
+  });
+
+  group('transportErrorHint（版本 floor 明示，清单 §5.6）', () {
+    test('protocol_version 给出升级明示，不裸断连', () {
+      expect(transportErrorHint('protocol_version'), contains('升级'));
+      expect(transportErrorHint('protocol_version'), contains('协议版本'));
+    });
+
+    test('撤销/认证失败指向重新配对入口', () {
+      expect(transportErrorHint('device_revoked'), contains('重新配对'));
+      expect(transportErrorHint('auth_failed'), contains('重新配对'));
+    });
+
+    test('无提示的错误码返回 null（原样展示 code+message）', () {
+      expect(transportErrorHint('internal'), isNull);
+      expect(transportErrorHint('rate_limited'), isNull);
     });
   });
 }

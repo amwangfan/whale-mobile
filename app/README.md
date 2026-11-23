@@ -17,4 +17,4 @@ Flutter 页面在 `lib/`；V2 设备连接在 `lib/transport/transport_client_v2
 
 设备自主体的原生入口在 `android/app/src/main/kotlin/com/wangfanlab/whale/modules/agent2/`，包括 Root Shell、UI 观察/控制与紧急停止；日常手机和专用 Root 手机通过不同模块授权使用同一套协议。
 
-端云 JSON Schema 位于仓库根 `contracts/v2/`，是当前唯一设备协议。Android 真机运行记录和使用步骤见 `../docs/STATUS.md` 与 `../docs/SETUP-MAGIC8.md`。
+端云 JSON Schema 位于仓库根 `contracts/device/`，是当前唯一设备协议。Android 真机运行记录和使用步骤见 `../docs/STATUS.md` 与 `../docs/SETUP-MAGIC8.md`。

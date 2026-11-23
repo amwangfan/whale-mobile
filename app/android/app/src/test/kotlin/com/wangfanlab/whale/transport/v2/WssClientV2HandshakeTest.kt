@@ -24,7 +24,7 @@ import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 
 /**
- * WssClientV2 握手与帧分发测试（contracts/v2 §4/§6）。
+ * WssClientV2 握手与帧分发测试（contracts/device §4/§6）。
  * 以代理 WebSocket 注入假连接，不走真实网络；Ed25519 签名用公钥真实验签。
  */
 @RunWith(RobolectricTestRunner::class)
@@ -60,6 +60,17 @@ class WssClientV2HandshakeTest {
         override fun onNotificationEvent(payload: Map<String, Any?>) {
             listenerEvents.add(mapOf("kind" to "notification_event") + payload)
         }
+        override fun onProtocolError(code: String, message: String, refId: String) {
+            listenerEvents.add(
+                mapOf("kind" to "error", "code" to code, "message" to message, "ref_id" to refId),
+            )
+        }
+
+        /** 冒烟测试钩：device.status 查询由本测试 listener 接管并如实回 ok。 */
+        var sensorQueryHandler: ((Map<String, Any?>) -> Boolean)? = null
+
+        override fun onSensorQuery(payload: Map<String, Any?>): Boolean =
+            sensorQueryHandler?.invoke(payload) ?: false
     }
 
     @Before
@@ -113,7 +124,7 @@ class WssClientV2HandshakeTest {
         context.deleteDatabase(dedupDb)
     }
 
-    private fun inbound(type: String, payload: Map<String, Any?>, seq: Long = 1L, v: String = "2.0",
+    private fun inbound(type: String, payload: Map<String, Any?>, seq: Long = 1L, v: String = "1.0",
                         dir: String = DIR_DOWNLINK): String =
         EnvelopeV2(v = v, id = Ulid.newUlid(), type = type, ts = 1794052800000L, seq = seq,
             dir = dir, payload = payload).toJson()
@@ -133,9 +144,9 @@ class WssClientV2HandshakeTest {
         assertEquals(MsgTypeV2.DEVICE_HELLO, hello.type)
         assertEquals(DIR_UPLINK, hello.dir)
         assertEquals(1L, hello.seq) // 上行 seq 从 1 开始
-        assertEquals("2.0", hello.v)
+        assertEquals("1.0", hello.v) // 2026-11-23 clean break：信封 1.x
         val p = hello.payload
-        assertEquals("2.0", p["protocol_version"])
+        assertEquals("1.0", p["protocol_version"])
         assertEquals(identity.getDeviceId(), p["device_id"])
         assertEquals(listOf("device.tap", "screen.context.read", "device.status"), p["capabilities"])
         @Suppress("UNCHECKED_CAST")
@@ -213,6 +224,103 @@ class WssClientV2HandshakeTest {
         assertEquals(0, outbox.stats().sent)
     }
 
+    @Test
+    fun `capability smoke - device tap observe actions and device status query`() {
+        // 清单 §5.3 全能力冒烟（假 core 等效）：action.request(device.tap /
+        // device.observe) 经注册执行器走 收到→终态 回执链；sensor.query
+        // (device.status) 经监听器接管回 sensor.result ok。
+        val executed = mutableListOf<String>()
+        for (cap in listOf("device.tap", "device.observe")) {
+            client.dispatcher.registerHandler(cap) { request, reply ->
+                executed.add(request.capability)
+                reply(
+                    ReceiptDispatcherV2.ActionOutcome(
+                        status = ReceiptStatus.SUCCEEDED,
+                        resultSummary = "fake-core smoke ok",
+                        verificationStatus = "skipped",
+                    ),
+                )
+            }
+        }
+        listener.sensorQueryHandler = { payload ->
+            val requestId = payload["request_id"] as String
+            client.sendSensorResult(
+                requestId, "ok",
+                listOf(mapOf("battery" to 87L, "network" to "wifi")), false, "fake-core",
+            )
+            true
+        }
+        // 握手上线（收窄能力含本用例三项）
+        feed(inbound(MsgTypeV2.AUTH_CHALLENGE, mapOf("challenge" to challenge, "expires_in" to 60L)))
+        takeFrame() // hello
+        feed(inbound(MsgTypeV2.DEVICE_HELLO_ACK, mapOf(
+            "session_id" to Ulid.newUlid(),
+            "server_time" to 1794052800100L,
+            "heartbeat_interval" to 30L,
+            "accepted_capabilities" to listOf("device.tap", "device.observe", "device.status"),
+        ), seq = 2L))
+        takeFrame() // notification.sync
+
+        // device.tap / device.observe：received（非终态）→ succeeded（终态）
+        for ((i, cap) in listOf("device.tap", "device.observe").withIndex()) {
+            feed(inbound(MsgTypeV2.ACTION_REQUEST, mapOf(
+                "action_id" to IdsV2.newActionId(),
+                "capability" to cap,
+                "arguments" to emptyMap<String, Any?>(),
+                "idempotency_key" to "smoke:$i:${Ulid.newUlid()}",
+                "timeout_ms" to 5000L,
+                "expires_at" to 4102444800000L,
+                "authorized_scope" to listOf(cap),
+            ), seq = 10L + i))
+            val received = takeFrame()
+            assertEquals(MsgTypeV2.ACTION_RECEIPT, received.type)
+            assertEquals("received", received.payload["status"])
+            val terminal = takeFrame()
+            assertEquals(MsgTypeV2.ACTION_RECEIPT, terminal.type)
+            assertEquals("succeeded", terminal.payload["status"])
+        }
+        assertEquals(listOf("device.tap", "device.observe"), executed)
+
+        // device.status：sensor.query → sensor.result ok
+        val requestId = Ulid.newUlid()
+        feed(inbound(MsgTypeV2.SENSOR_QUERY, mapOf(
+            "request_id" to requestId,
+            "operation" to "device.status",
+            "filters" to emptyMap<String, Any?>(),
+            "max_items" to 5L,
+        ), seq = 20L))
+        val result = takeFrame()
+        assertEquals(MsgTypeV2.SENSOR_RESULT, result.type)
+        assertEquals(requestId, result.payload["request_id"])
+        assertEquals("ok", result.payload["status"])
+    }
+
+    @Test
+    fun `heartbeat frames follow hello ack interval`() {
+        // 清单 §5.2 心跳：hello_ack 的 heartbeat_interval=1s → 上行 device.heartbeat
+        // 按约到来（device_id/observed_at/status 齐备）。
+        feed(inbound(MsgTypeV2.AUTH_CHALLENGE, mapOf("challenge" to challenge, "expires_in" to 60L)))
+        takeFrame()
+        feed(inbound(MsgTypeV2.DEVICE_HELLO_ACK, mapOf(
+            "session_id" to Ulid.newUlid(),
+            "server_time" to 1794052800100L,
+            "heartbeat_interval" to 1L,
+            "accepted_capabilities" to emptyList<String>(),
+        ), seq = 2L))
+        takeFrame() // notification.sync
+        val deadline = System.currentTimeMillis() + 5000
+        var heartbeat: EnvelopeV2? = null
+        while (System.currentTimeMillis() < deadline && heartbeat == null) {
+            val f = frames.poll(200, TimeUnit.MILLISECONDS) ?: continue
+            if (f.type == MsgTypeV2.DEVICE_HEARTBEAT) heartbeat = f
+        }
+        assertNotNull("hello_ack 后应按 heartbeat_interval 上行心跳", heartbeat)
+        heartbeat!!
+        assertEquals(identity.getDeviceId(), heartbeat.payload["device_id"])
+        assertEquals("online", heartbeat.payload["status"])
+        assertNotNull(heartbeat.payload["observed_at"])
+    }
+
     // ---- 违例与前向兼容（§4） ----
 
     @Test
@@ -224,11 +332,39 @@ class WssClientV2HandshakeTest {
 
     @Test
     fun `foreign major version gets protocol version error and close`() {
-        feed(inbound(MsgTypeV2.DEVICE_HELLO_ACK, emptyMap(), v = "3.0"))
-        val err = takeFrame()
-        assertEquals(MsgTypeV2.ERROR, err.type)
-        assertEquals("protocol_version", err.payload["code"])
-        assertTrue(socketClosed)
+        // 2026-11-23 clean break 负例（清单 §5.5）：v=2.0（旧 V2）与更高 major
+        // 一律回 error.protocol_version 并关闭（端侧对 core 负例的对称行为）。
+        for (foreign in listOf("2.0", "3.0")) {
+            socketClosed = false
+            feed(inbound(MsgTypeV2.DEVICE_HELLO_ACK, emptyMap(), v = foreign))
+            val err = takeFrame()
+            assertEquals(MsgTypeV2.ERROR, err.type)
+            assertEquals("protocol_version", err.payload["code"])
+            assertTrue("v=$foreign 必须触发关闭", socketClosed)
+        }
+    }
+
+    @Test
+    fun `protocol version error from core is terminal with explicit event`() {
+        // 版本 floor（清单 §5.6）：hello 被 core 以 error.protocol_version 拒绝时，
+        // 端侧关连、事件上行、且不再重连（voluntaryClose 拦截 onClosed 的重连路径）。
+        feed(inbound(MsgTypeV2.AUTH_CHALLENGE, mapOf("challenge" to challenge, "expires_in" to 60L)))
+        takeFrame() // hello
+        feed(inbound(MsgTypeV2.ERROR, mapOf(
+            "ref_id" to WssClientV2.ZERO_ULID,
+            "code" to "protocol_version",
+            "message" to "unsupported protocol major: 1",
+        ), seq = 2L))
+        assertTrue("protocol_version 后必须关连", socketClosed)
+        drainMain()
+        val events = generateSequence { listenerEvents.poll() }.toList()
+        val errEvent = events.firstOrNull { it["kind"] == "error" }
+        assertNotNull("protocol_version 必须派发错误事件（UI 明示升级）", errEvent)
+        assertEquals("protocol_version", errEvent!!["code"])
+        assertTrue(
+            "终态后必须落到 disconnected（不得残留 connecting/awaiting_auth）",
+            events.any { it["kind"] == "state" && it["state"] == "disconnected" },
+        )
     }
 
     @Test

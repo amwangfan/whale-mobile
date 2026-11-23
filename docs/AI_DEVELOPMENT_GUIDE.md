@@ -1,6 +1,6 @@
 # Whale Mobile · 开发者与 AI 协作指南
 
-> 面向修改本仓的开发者与编程 Agent。首次阅读从 [README](../README.md) 开始；当前协议和真机状态分别查看 [contracts/v2](../contracts/v2/) 与 [STATUS](STATUS.md)。
+> 面向修改本仓的开发者与编程 Agent。首次阅读从 [README](../README.md) 开始；当前协议和真机状态分别查看 [contracts/device](../contracts/device/) 与 [STATUS](STATUS.md)。
 
 > 更新：2026-11-08。本文只描述当前 V2 代码导航；旧 V1 验收记录保留在 STATUS 的历史阶段中。
 
@@ -26,14 +26,14 @@ NodeRuntimeV2（Application 单例）── NodeServiceV2
        ├─ EventOutboxV2 / OfflineQueue / ReceiptDispatcherV2
        ├─ Agent2 / Notification2 / Recording
        └─ Capture / ScreenMemo / VoIP / Glasses
-                  │ contracts/v2
+                  │ contracts/device
                   ▼
        whale-core EmbeddedWssGateway
 ```
 
-- 当前设备协议只有 `contracts/v2/`；canonical source 在本仓，Core 的同名目录是镜像。
-- Core 管理 REST 仍使用 `/api/v1` 路径前缀；设备 WSS 使用 `/api/v2/devices/ws`。不要混淆 API 路径版本和设备协议版本。
-- V1 设备协议、旧 WssClient/NodeRuntime 生产链路和 `server/dev_gateway.py` 已退役；不要继续新增 V1 兼容代码。
+- 当前设备协议只有 `contracts/device/`（2026-11-23 clean break 由 `contracts/device` 更名）；canonical source 在 **Core 仓**，本仓为镜像（同步校验：`scripts/contract_sync_check.py`）。
+- 设备 WSS 使用 `/api/devices/ws`（路径已去版本化）；配对为 owner-first：控制台出 6 位码 → 手机 `POST /api/devices/pair` 兑换（免令牌）。不要混淆历史 API 路径版本与设备协议版本。
+- V1 设备协议、旧 WssClient/NodeRuntime 生产链路和 `server/dev_gateway.py` 已退役；不要继续新增 V1 兼容代码。旧 `/api/v2/devices/*` 路径与信封 `v=2.x` 同样已随 clean break 死亡（core fail-closed，无容忍窗）。
 
 ## 3. 代码地图
 
@@ -50,7 +50,7 @@ NodeRuntimeV2（Application 单例）── NodeServiceV2
 | ScreenMemo 与采集 | `app/android/app/src/main/kotlin/com/wangfanlab/whale/modules/capture/`、`app/lib/features/screenmemo/` |
 | VoIP 宿主实现 | `app/android/app/src/main/java/com/wangfanlab/whale/voip/` |
 | 眼镜桥 | `app/android/app/src/main/kotlin/com/wangfanlab/whale/modules/glasses/` |
-| V2 协议与样例 | `contracts/v2/` |
+| V2 协议与样例 | `contracts/device/` |
 | 真机记录 | `docs/STATUS.md`、`docs/SETUP-MAGIC8.md` |
 
 旧独立 VoIP APK 与重复源码已清理；`modules/voip/docs/` 是历史设计资料，唯一生产实现为 `app/android`。媒体鉴权单测位于 `tests/test_voip_media_security.py`。
