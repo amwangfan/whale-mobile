@@ -10,7 +10,7 @@
 
 </div>
 
-whale-mobile 是 [whale-core](https://github.com/amwangfan/whale-core) 的 Android 节点。手机负责采集、展示、实时交互和执行，Core 负责人格、记忆、任务决策和多设备编排。两侧通过 [contracts/v2](contracts/v2/) 中的版本化协议通信。
+whale-mobile 是 [whale-core](https://github.com/amwangfan/whale-core) 的 Android 节点。手机负责采集、展示、实时交互和执行，Core 负责人格、记忆、任务决策和多设备编排。两侧通过 [contracts/device](contracts/device/) 中的协议通信（信封 1.x，路径去版本化）。
 
 目标不是把手机做成另一个聊天 App，而是让鲸鱼拥有可使用的感官和身体：能感知日常，给用户提示，也能在专用设备上自主观察和操作。普通手机与专用 Root 手机可以采用不同权限配置。
 
@@ -35,7 +35,7 @@ V2 设备握手、通知、查询/回执、Root 执行与 Bilibili 全链（打�
 | [`app/android/app/src/main/kotlin/com/wangfanlab/whale/runtime/v2/`](app/android/app/src/main/kotlin/com/wangfanlab/whale/runtime/v2/) | NodeRuntimeV2、NodeServiceV2、重启与后台恢复 |
 | [`app/android/app/src/main/kotlin/com/wangfanlab/whale/modules/`](app/android/app/src/main/kotlin/com/wangfanlab/whale/modules/) | agent / capture / glasses / notifications / notificationread / voip / safeaction 等实际原生实现 |
 | [`app/android/app/src/main/kotlin/com/wangfanlab/whale/transport/v2/`](app/android/app/src/main/kotlin/com/wangfanlab/whale/transport/v2/) | V2 设备身份、WSS、离线队列、Flutter 原生桥 |
-| [`contracts/v2/`](contracts/v2/) | 端云协议、Schema、示例（与 Core 同步） |
+| [`contracts/device/`](contracts/device/) | 端云协议、Schema、示例（镜像自 Core） |
 | [`server/`](server/) | 服务端音频桥与联调工具，不是 Android APK 内容 |
 | [`docs/`](docs/) | 架构、真机验收、部署与集成记录 |
 

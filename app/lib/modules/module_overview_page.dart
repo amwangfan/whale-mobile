@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'notification_read_apps_page.dart';
 import 'registry.dart';
+import 'states.dart';
 import 'screenmemo/event_poller.dart';
 import 'screenmemo/mcp_client.dart';
 import 'screenmemo/screenmemo_module.dart';
@@ -39,11 +40,12 @@ class _ModuleOverviewPageState extends State<ModuleOverviewPage> {
 
   /// 默认网关地址可用 `--dart-define=WM_GATEWAY_URL=ws://host:port` 覆盖，
   /// 便于真机联调时注入 tailnet/内网地址而不入库。
-  /// 2026-11-21 主人令：默认改公网域名 wss://rayneo.wangfanlab.com/api/v2/devices/ws
-  /// （持久化成默认，不再手填尾网 IP；client 原样直连不拼路径，须全路径）。
+  /// 2026-11-21 主人令：默认改公网域名（持久化成默认，不再手填尾网 IP）。
+  /// 2026-11-23 clean break：路径去版本化为 /api/devices/ws；配对成功的
+  /// ws_path（Core 应答）经 connect 落库后优先于本默认。
   static const String _defaultGatewayUrl = String.fromEnvironment(
     'WM_GATEWAY_URL',
-    defaultValue: 'wss://rayneo.wangfanlab.com:8443/api/v2/devices/ws',
+    defaultValue: 'wss://rayneo.wangfanlab.com:8443/api/devices/ws',
   );
 
   TransportState _state = TransportState.disconnected;
@@ -149,8 +151,12 @@ class _ModuleOverviewPageState extends State<ModuleOverviewPage> {
       _appendLog('${e['kind']}: session=${e['session_id'] ?? '-'}');
     }, onError: (Object _) {});
     _errorSub = _transportV2.errors.listen((e) {
-      _registry.setLastError('transport', '${e.code} ${e.message}');
-      _appendLog('error: ${e.code} ${e.message}');
+      // 版本 floor：protocol_version 等终态错误附主人可读处置提示（states.dart）。
+      final hint = transportErrorHint(e.code);
+      final text =
+          hint == null ? '${e.code} ${e.message}' : '${e.code} ${e.message}｜$hint';
+      _registry.setLastError('transport', text);
+      _appendLog('error: $text');
     }, onError: (Object _) {});
     _loadIdentity();
     // 先读全局暂停标志，再初始化模块与自动回连（暂停时不自动联网）。

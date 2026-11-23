@@ -1,6 +1,7 @@
 # transport/ — 传输层
 
-> 协议事实源：`contracts/v2/`（信封/消息 schema/能力枚举）。
+> 协议事实源：`contracts/device/`（信封 1.x / 消息 schema / 能力枚举；
+> 2026-11-23 clean break 由 `contracts/v2/` 更名并去版本化，canonical 在 Core 仓）。
 > 本目录文档描述 whale-mobile 端实现。
 >
 > **v1 协议栈已整体下线（feat/contracts-v2）**：v1 的 WssClient/Envelope/
@@ -16,7 +17,7 @@ app/android/app/src/main/kotlin/com/wangfanlab/whale/transport/
 ├── BridgeDataQueries.kt   本地数据查询面实现（notificationInbox.*/capture.*/
 │                          favorites.*/backup.*/getLaunchRoute，v1/v2 桥共享）
 ├── TransportBridge.kt     `whale/transport` 桥（瘦身版：数据查询面 + 模块配置面）
-└── v2/                    contracts/v2 协议栈（唯一控制面）
+└── v2/                    contracts/device 协议栈（唯一控制面）
     ├── ProtocolV2.kt      v2 信封编解码/ID 生成（IdsV2/ULID）等纯 JVM 件
     ├── WssClientV2.kt     WSS 客户端：握手/心跳/重连/action 分发
     ├── ReceiptDispatcherV2.kt + ActionDedupStoreV2（action 幂等/超时/终态机）
@@ -45,7 +46,10 @@ Android Keystore 不直接支持 Ed25519，采用两层结构：
    （`iv(12B)‖ciphertext‖tag(16B)`，Base64）存 SharedPreferences。
 
 - `device_id = SHA-256(公钥)[:16].hex()`（32 小写 hex 字符）；
-- 配对：v2 设备上屏配对（`getPairingInfoV2`），公钥报 core 可信管理端登记；
+- 配对：owner-first（2026-11-23 clean break）——主人在 core 控制台出 6 位码，
+  手机在「我的 → Core 连接设置」输码，`POST /api/devices/pair` 兑换立即激活，
+  应答 `ws_path` 为 WS 长连路径事实源（落库 gateway_url）；旧设备上屏出码
+  （device-first）流已随 core 删除，`getPairingInfoV2` 仅存作诊断面；
 - 主密钥失效（恢复出厂等）→ 重新生成身份，device_id 变化，需重新配对（日志告警）。
 
 ## 3. 运行时
@@ -57,4 +61,4 @@ Android Keystore 不直接支持 Ed25519，采用两层结构：
   `RecoveryPolicy`（恢复决策）、`SensorQueryDispatch`（sensor.query 分发链）、
   `UiEventHub`（UI 事件扇出）、`PauseFlags`（whale_modules/all_paused 一键暂停读取点）。
 
-详细协议语义见 `contracts/v2/` 与各文件头注释。
+详细协议语义见 `contracts/device/` 与各文件头注释。

@@ -4,9 +4,9 @@
 
 ## 1. 定位与协议
 
-Whale Mobile 是鲸鱼的 Android 身体与感官；whale-core 负责人格、长期记忆、意图、任务决策和多设备编排。两侧通过本仓 `contracts/v2/` 通信；该目录是 canonical source，Core 仓的同名目录为镜像。
+Whale Mobile 是鲸鱼的 Android 身体与感官；whale-core 负责人格、长期记忆、意图、任务决策和多设备编排。两侧通过本仓 `contracts/device/` 通信；该目录镜像自 Core 仓同名目录（canonical source 在 Core）。
 
-Core 的设备管理 REST 路径沿用全站 `/api/v1` 前缀；设备 WSS 路径为 `/api/v2/devices/ws`。协议版本以消息 envelope 和 `contracts/v2` 为准。
+设备 WSS 路径为 `/api/devices/ws`（2026-11-23 clean break 去版本化）；配对走 `POST /api/devices/pair`（owner-first 6 位兑换码）。协议版本以消息 envelope（`v=1.x`）和 `contracts/device` 为准。
 
 ## 2. Android 运行时
 

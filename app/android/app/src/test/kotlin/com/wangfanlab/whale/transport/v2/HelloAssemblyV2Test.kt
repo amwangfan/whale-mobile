@@ -6,7 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * device.hello 组装（contracts/v2 §4/§5.2）单元测试。
+ * device.hello 组装（contracts/device §4/§5.2）单元测试。
  * 按「传入的 capabilities 集合」验证构建变体差异：daily 集合不得含
  * device.shell 等 Root 能力；root 集合包含之（§5.2：不靠 UI 隐藏）。
  */
@@ -53,7 +53,7 @@ class HelloAssemblyV2Test {
             ),
             keys,
         )
-        assertEquals("2.0", payload["protocol_version"])
+        assertEquals("1.0", payload["protocol_version"])
         assertEquals(deviceId, payload["device_id"])
         assertEquals("daily", payload["app_flavor"])
         assertEquals(signature, payload["signature"])

@@ -2,7 +2,7 @@ import 'dart:math';
 
 import '../../../transport/transport_client_v2.dart';
 
-/// REST 设备签名（contracts/v2 §11）：云端对 /api/v2/* 启用四头 fail-closed
+/// REST 设备签名（contracts/device §11）：云端对设备通道面启用四头 fail-closed
 /// 鉴权后，所有 REST 调用点在保留 Bearer 的同时叠加本类生成的四头。
 ///
 /// 四头：

@@ -23,7 +23,7 @@ import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 
 /**
- * WSS 控制通道客户端（contracts/v2，替换 v1 [com.wangfanlab.whale.transport.WssClient]）。
+ * WSS 控制通道客户端（contracts/device，替换 v1 [com.wangfanlab.whale.transport.WssClient]）。
  *
  * 握手时序（§1/§4）：
  *   connect → TCP/WS 建立（CONNECTING → AWAITING_AUTH）
@@ -819,7 +819,16 @@ class WssClientV2(
         val message = env.payload["message"] as? String ?: ""
         val refId = env.payload["ref_id"] as? String ?: ""
         Log.w(TAG, "协议错误 code=$code message=$message ref=$refId")
-        postMain { listener.onProtocolError(code, message, refId) }
+        // 版本 floor（§4）：core 对未知 major 回 error.protocol_version 后关闭。
+        // 端侧必须把这条错误做成**终态**——core 随后关连会触发 onClosed，
+        // 不拦的话会掉进重连退避死循环，且 UI 只剩一次裸断连。
+        val terminalProtocol = code == ErrorCodeV2.PROTOCOL_VERSION
+        val effectiveMessage = if (terminalProtocol && message.isBlank()) {
+            "协议版本不匹配（core 拒绝 v=$PROTOCOL_VERSION_V2 之外的 major）"
+        } else {
+            message
+        }
+        postMain { listener.onProtocolError(code, effectiveMessage, refId) }
         when (code) {
             ErrorCodeV2.DEVICE_REVOKED -> {
                 // §16：撤销后队列与幂等表清空；不重连（需重新配对）。
@@ -832,6 +841,12 @@ class WssClientV2(
             ErrorCodeV2.AUTH_FAILED -> {
                 voluntaryClose = true
                 ws?.close(1000, "auth failed")
+                transition(State.DISCONNECTED)
+            }
+            ErrorCodeV2.PROTOCOL_VERSION -> {
+                // 终态：不重连（重连只会再被拒）；UI 层负责「需升级 App/核心」明示。
+                voluntaryClose = true
+                ws?.close(1002, "protocol version rejected")
                 transition(State.DISCONNECTED)
             }
         }

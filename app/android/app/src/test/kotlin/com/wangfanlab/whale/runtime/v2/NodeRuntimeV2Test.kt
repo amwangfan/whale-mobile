@@ -150,7 +150,7 @@ class NodeRuntimeV2Test {
     private fun feed(type: String, payload: Map<String, Any?>, seq: Long = 10L) =
         runtime.clientForTest().onInboundTextForTest(
             EnvelopeV2(
-                v = "2.0", id = Ulid.newUlid(), type = type, ts = 1794052800000L,
+                v = "1.0", id = Ulid.newUlid(), type = type, ts = 1794052800000L,
                 seq = seq, dir = DIR_DOWNLINK, payload = payload,
             ).toJson(),
         )
@@ -187,7 +187,7 @@ class NodeRuntimeV2Test {
         val info = runtime.getPairingInfo()
         assertEquals(runtime.identity.getDeviceId(), info["device_id"])
         assertEquals(runtime.identity.getPublicKeyHex(), info["public_key_hex"])
-        assertEquals("2.0", info["protocol_version"])
+        assertEquals("1.0", info["protocol_version"])
         assertTrue((info["capabilities"] as List<*>).isNotEmpty())
     }
 

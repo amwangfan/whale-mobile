@@ -24,7 +24,7 @@ import java.io.FileOutputStream
  *   [evidenceFile] 做根目录逃逸校验，不透明引用规则与 WM-03 一致）；
  * - 去重键：(capture_time, package_name, dhash) 唯一索引——迁移重放/双写幂等；
  * - segment_id 形如 `segment_<ULID>`，证据引用为 `capture:segment_<ULID>`
- *   （contracts/v2 §9/§10 示例形态）；
+ *   （contracts/device §9/§10 示例形态）；
  * - 隐私：本库为 owner_sensitive，永不进任何群聊/上行路径（上行只有
  *   经 adapter 裁剪的条目或影子统计）。
  */

@@ -25,7 +25,7 @@ import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 
 /**
- * RecordingController 录制状态机单测（contracts/v2 §12.2）。
+ * RecordingController 录制状态机单测（contracts/device §12.2）。
  *
  * 覆盖：control payload 解析（run_id/op/options 值域）、start/pause/resume/stop
  * 状态迁移与 recording.state 回报组包、幂等重报、异 run 并发拒绝、未知 run 拒绝、

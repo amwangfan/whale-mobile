@@ -1,5 +1,6 @@
 # 跨仓契约漂移校验（whale-mobile#34）——仅手动触发。
-# canonical 是本仓；core 为镜像。最终以同一批次两个候选 ref 联合验收。
+# 2026-11-23 clean break 起 canonical 是 core 仓 contracts/device/，本仓为镜像。
+# 最终以同一批次两个候选 ref 联合验收。
 name: contract-sync
 
 on:
@@ -27,5 +28,5 @@ jobs:
           repository: amwangfan/whale-core
           ref: ${{ inputs.core_ref }}
           path: core
-      - name: Compare contracts/v1 file by file
+      - name: Compare contracts/device file by file
         run: python3 mobile/scripts/contract_sync_check.py --a mobile --b core

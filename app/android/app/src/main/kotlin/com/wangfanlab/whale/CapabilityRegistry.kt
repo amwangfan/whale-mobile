@@ -1,13 +1,13 @@
 package com.wangfanlab.whale
 
 /**
- * 能力注册表（contracts/v2 §5.2）：按构建变体声明本 APK 实际支持的能力。
+ * 能力注册表（contracts/device §5.2）：按构建变体声明本 APK 实际支持的能力。
  *
  * Root 版独有能力（device.shell / device.file.* / device.app.install /
  * uninstall / device.logcat / device.screen.record 等）只在 root 变体注册，
  * 不靠 UI 隐藏——daily 构建的 hello 里根本不会出现这些能力。
  *
- * 能力名与 contracts/v2 §5.1 枚举逐字一致；协议变更须同步。
+ * 能力名与 contracts/device §5.1 枚举逐字一致；协议变更须同步。
  */
 object CapabilityRegistry {
 

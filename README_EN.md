@@ -10,7 +10,7 @@ Whale's Android body and senses: perception, notifications, VoIP, glasses intera
 
 </div>
 
-whale-mobile is the Android node for [whale-core](https://github.com/amwangfan/whale-core). The phone collects signals, presents information, handles real-time interactions and executes actions. Core provides persona, memory, decisions and multi-device orchestration. They communicate through the versioned [contracts/v2](contracts/v2/) protocol.
+whale-mobile is the Android node for [whale-core](https://github.com/amwangfan/whale-core). The phone collects signals, presents information, handles real-time interactions and executes actions. Core provides persona, memory, decisions and multi-device orchestration. They communicate through the [contracts/device](contracts/device/) protocol (envelope 1.x, de-versioned paths).
 
 The goal is not another chat app: Whale gains useful senses and a way to act. A daily-use phone and a dedicated Root phone can have different permission profiles.
 
@@ -35,7 +35,7 @@ V2 handshake, notifications, queries/receipts, Root execution and the full Bilib
 | [`app/android/app/src/main/kotlin/com/wangfanlab/whale/runtime/v2/`](app/android/app/src/main/kotlin/com/wangfanlab/whale/runtime/v2/) | NodeRuntimeV2, NodeServiceV2, startup/background recovery |
 | [`app/android/app/src/main/kotlin/com/wangfanlab/whale/modules/`](app/android/app/src/main/kotlin/com/wangfanlab/whale/modules/) | Native agent, capture, glasses, notifications, VoIP and related modules |
 | [`app/android/app/src/main/kotlin/com/wangfanlab/whale/transport/v2/`](app/android/app/src/main/kotlin/com/wangfanlab/whale/transport/v2/) | V2 identity, WSS, offline queue and Flutter bridge |
-| [`contracts/v2/`](contracts/v2/) | Device/cloud protocol, schemas and examples (synced with Core) |
+| [`contracts/device/`](contracts/device/) | Device/cloud protocol, schemas and examples (mirrored from Core) |
 | [`server/`](server/) | Server-side audio bridge and integration tools, not bundled in the Android APK |
 | [`docs/`](docs/) | Architecture, device tests, deployment and integration records |
 

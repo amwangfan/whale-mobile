@@ -38,6 +38,24 @@ class GatewayUrlNormalizeV2Test {
     }
 
     @Test
+    fun `legacy v2 device ws path migrates to de-versioned path`() {
+        // 2026-11-23 clean break 单向迁移：存量持久化地址的旧版路径精确改写。
+        assertEquals(
+            "wss://office-n100.tail69bfea.ts.net:8443/api/devices/ws",
+            normalizeGatewayUrlV2("wss://office-n100.tail69bfea.ts.net:8443/api/v2/devices/ws"),
+        )
+        // 带 query 的旧路径同样迁移；近似但非精确旧路径（前缀/后缀不同）不改写。
+        assertEquals(
+            "wss://example.com/api/devices/ws?x=1",
+            normalizeGatewayUrlV2("wss://example.com/api/v2/devices/ws?x=1"),
+        )
+        assertEquals(
+            "wss://example.com/api/v2/devices/ws2",
+            normalizeGatewayUrlV2("wss://example.com/api/v2/devices/ws2"),
+        )
+    }
+
+    @Test
     fun `query without path gets path inserted before query`() {
         assertEquals(
             "wss://example.com$WSS_PATH_V2?x=1",

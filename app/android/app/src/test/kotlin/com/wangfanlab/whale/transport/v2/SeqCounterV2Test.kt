@@ -6,7 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * seq 双向单调（contracts/v2 §4）单元测试。
+ * seq 双向单调（contracts/device §4）单元测试。
  * （自 v1 SeqAndIdsTest 迁入：Ids 部分随 v1 信封删除，SeqCounter 部分保留。）
  */
 class SeqCounterV2Test {

@@ -8,7 +8,7 @@ package com.wangfanlab.whale.transport.v2
  * 事件方向（原生 → Dart）沿用 Map 载荷经 [WssClientV2.Listener] 扇出，
  * 由桥层在接入时映射到 EventChannel。
  *
- * 计划方法面（与 v1 TransportBridge 对齐，语义按 contracts/v2）：
+ * 计划方法面（与 v1 TransportBridge 对齐，语义按 contracts/device）：
  * - connectV2({url, capabilities?}) → {device_id, public_key_hex}
  *     capabilities 缺省按 CapabilityRegistry 当前变体集合；
  * - disconnectV2() → null；

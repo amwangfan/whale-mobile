@@ -1,4 +1,4 @@
-/// 附件引用模型（contracts/v2 §11 AttachmentRef，objects/attachment-ref）。
+/// 附件引用模型（contracts/device §11 AttachmentRef，objects/attachment-ref）。
 ///
 /// 严格 schema 键集：attachment_id/type/mime/size/sha256/width/height/duration_ms。
 /// 消息体只携带 attachment_id，不在 JSON 里反复传 Base64。

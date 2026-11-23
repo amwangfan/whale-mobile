@@ -6,7 +6,7 @@ import android.content.Intent
 import android.util.Log
 
 /**
- * 开机恢复入口（BG-02，contracts/v2 面；接替 v1 runtime/BootReceiver）。
+ * 开机恢复入口（BG-02，contracts/device 面；接替 v1 runtime/BootReceiver）。
  *
  * BOOT_COMPLETED 是系统保护广播，进程被拉起时处于后台：
  * - 恢复决策经 [com.wangfanlab.whale.runtime.RecoveryPolicy]

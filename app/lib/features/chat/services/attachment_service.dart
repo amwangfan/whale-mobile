@@ -30,8 +30,12 @@ class PickedAttachment {
 
 /// 附件服务：选择（image_picker / file_picker）+ multipart 上传 + 下载。
 ///
-/// 上传：POST /api/v2/chat/attachments（multipart/form-data，字段 file +
+/// 上传：POST /api/chat/attachments（multipart/form-data，字段 file +
 /// 可选 type 声明）→ 201 AttachmentRef（响应体即 schema 对象本体）。
+///
+/// 特性探测（2026-11-23 clean break）：契约路径已去版本化但 core 尚未实现
+/// 该面——404 一律映射为 ChatApiException(code=not_implemented)，UI 显式
+/// 提示「Core 未实现附件功能」，不伪装失败重试。
 class AttachmentService {
   AttachmentService(
       {String? baseUrl,
@@ -154,7 +158,7 @@ class AttachmentService {
   Future<AttachmentRef> upload(PickedAttachment picked) async {
     final base = await _baseUrl;
     final token = await _token;
-    final uri = Uri.parse('$base/api/v2/chat/attachments');
+    final uri = Uri.parse('$base/api/chat/attachments');
     final signed = await _signedHeaders('POST', uri);
     const boundary = '----whale-mobile-upload-boundary';
     final HttpClientRequest req;
@@ -201,6 +205,7 @@ class AttachmentService {
           httpStatus: res.statusCode);
     }
     if (res.statusCode != 201) {
+      if (res.statusCode == 404) throw ChatApi.notImplemented();
       final err = json['error'];
       throw ChatApiException(
         err is Map ? err['code'] as String? ?? 'http_${res.statusCode}' : 'http_${res.statusCode}',
@@ -213,11 +218,11 @@ class AttachmentService {
 
   // ---------------------------------------------------------------- 下载
 
-  /// 下载附件字节（用于保存/打开）。
+  /// 下载附件字节（用于保存/打开）。404 → not_implemented（特性探测）。
   Future<List<int>> download(String attachmentId) async {
     final base = await _baseUrl;
     final token = await _token;
-    final uri = Uri.parse('$base/api/v2/attachments/$attachmentId');
+    final uri = Uri.parse('$base/api/attachments/$attachmentId');
     final signed = await _signedHeaders('GET', uri);
     try {
       final req = await _http.getUrl(uri).timeout(timeout);
@@ -227,6 +232,7 @@ class AttachmentService {
       signed.forEach((k, v) => req.headers.set(k, v));
       final res = await req.close().timeout(timeout);
       if (res.statusCode != 200) {
+        if (res.statusCode == 404) throw ChatApi.notImplemented();
         throw ChatApiException('http_${res.statusCode}',
             '下载失败 HTTP ${res.statusCode}',
             httpStatus: res.statusCode);

@@ -7,7 +7,7 @@ import com.wangfanlab.whale.transport.v2.ReceiptStatus
 import com.wangfanlab.whale.transport.v2.payloadLongV2
 
 /**
- * MediaProjection 录制状态机（contracts/v2 §12.2，纯逻辑可单测）。
+ * MediaProjection 录制状态机（contracts/device §12.2，纯逻辑可单测）。
  *
  * 职责：
  * - 解析/校验 recording.control payload（run_id/op/options 值域，与

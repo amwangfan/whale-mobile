@@ -15,7 +15,7 @@ import com.wangfanlab.whale.runtime.v2.NodeRuntimeV2
  */
 class WhaleApp : Application() {
 
-    /** contracts/v2 运行时（唯一节点运行时）。 */
+    /** contracts/device 运行时（唯一节点运行时）。 */
     lateinit var nodeRuntimeV2: NodeRuntimeV2
         private set
 

@@ -7,7 +7,7 @@ import android.database.sqlite.SQLiteOpenHelper
 import android.util.Log
 
 /**
- * 上行消息离线队列（自 v1 transport/OfflineQueue.kt 迁入 v2 包；contracts/v2 §16
+ * 上行消息离线队列（自 v1 transport/OfflineQueue.kt 迁入 v2 包；contracts/device §16
  * 至少一次送达 + core 按 event_id 去重的端侧底座，由 [EventOutboxV2] 持有）。
  *
  * - 持久化于 SQLite（android.database.sqlite，无第三方 ORM）；

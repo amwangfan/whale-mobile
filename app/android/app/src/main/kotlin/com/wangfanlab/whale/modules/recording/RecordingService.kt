@@ -30,7 +30,7 @@ import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * MediaProjection 内置录制服务（contracts/v2 §12.2；**仅 root 变体注册
+ * MediaProjection 内置录制服务（contracts/device §12.2；**仅 root 变体注册
  * device.screen.record 能力**，见 [registerScreenRecordTo]）。
  *
  * - 前台服务（mediaProjection 类型，API 29+ 声明）+ 可见通知（whale_recording

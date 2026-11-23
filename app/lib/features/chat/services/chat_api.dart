@@ -22,14 +22,18 @@ class ChatApiException implements Exception {
   String toString() => '[$code] $message';
 }
 
-/// 聊天面 REST 封装（contracts/v2 §11 + Core /api/v2 移动端聊天面）。
+/// 聊天面 REST 封装（contracts/device §11 + Core 移动端聊天面）。
 ///
 /// 已实现端点（Core routes/mobile_chat.py）：
-/// - GET  /api/v2/conversations?cursor=&limit=
-/// - GET  /api/v2/conversations/{id}/messages?cursor=&limit=
-/// - POST /api/v2/chat/attachments（multipart，见 attachment_service.dart）
-/// - GET/DELETE /api/v2/attachments/{id}
-/// - POST /api/v2/chat/stream（SSE，见 chat_stream.dart）
+/// - GET  /api/v2/conversations?cursor=&limit=          （clean break 未覆盖，见下）
+/// - GET  /api/v2/conversations/{id}/messages?cursor=&limit=（同上）
+/// - POST /api/chat/attachments（multipart，见 attachment_service.dart；去版本化）
+/// - GET/DELETE /api/attachments/{id}（去版本化）
+/// - POST /api/v2/chat/stream（SSE，见 chat_stream.dart；clean break 未覆盖）
+///
+/// 2026-11-23 clean break 只覆盖设备通道（WSS/配对）与附件面；会话/消息/SSE
+/// 属聊天面另行对齐（新 core 尚无对应 REST）。附件面 core 尚未实现：404 一律
+/// 映射为 [ChatApiException] code=not_implemented（特性探测语义），UI 显式提示。
 ///
 /// 角色（规划 §5.6）经工作室面：GET /api/studio/personas、
 /// PUT /api/studio/conversations/{key}/persona。
@@ -64,8 +68,8 @@ class ChatApi {
     return Uri.parse('$base$path').replace(queryParameters: query);
   }
 
-  /// 请求头：Accept + Bearer（保留不动）+ 设备签名四头（契约 §11，云端对
-  /// /api/v2/* fail-closed）。[pathWithQuery] 必须与实际请求线一致（含 query）。
+  /// 请求头：Accept + Bearer（保留不动）+ 设备签名四头（contracts/device §11，
+  /// 云端对设备通道面 fail-closed）。[pathWithQuery] 必须与实际请求线一致（含 query）。
   Future<Map<String, String>> _headers(
       String method, String pathWithQuery) async {
     final token = await _token;
@@ -220,10 +224,19 @@ class ChatApi {
 
   // ---------------------------------------------------------------- 附件
 
-  /// DELETE /api/v2/attachments/{id}（幂等语义：已删 → 410）。
+  /// 附件 REST 面特性探测（2026-11-23 clean break）：契约路径已去版本化
+  /// （/api/chat/attachments、/api/attachments/{id}），但 core 尚未实现该面——
+  /// 404 一律视为「未实现」，映射为显式 not_implemented，不当作普通失败重试。
+  static ChatApiException notImplemented() => const ChatApiException(
+        'not_implemented',
+        '当前 Core 未实现附件 REST（契约 §11 去版本化路径；待 core 落地该面）',
+        httpStatus: 404,
+      );
+
+  /// DELETE /api/attachments/{id}（幂等语义：已删 → 410；404 → not_implemented）。
   Future<void> deleteAttachment(String attachmentId) async {
     final base = await _baseUrl;
-    final uri = _uri(base, '/api/v2/attachments/$attachmentId');
+    final uri = _uri(base, '/api/attachments/$attachmentId');
     final headers = await _headers('DELETE', DeviceAuth.pathWithQuery(uri));
     try {
       final req = await _http
@@ -231,6 +244,7 @@ class ChatApi {
           .timeout(timeout);
       headers.forEach((k, v) => req.headers.set(k, v));
       final res = await req.close().timeout(timeout);
+      if (res.statusCode == 404) throw notImplemented();
       if (res.statusCode >= 300) {
         final body = await utf8.decodeStream(res);
         _decodeEnvelope(res.statusCode, body);
@@ -246,7 +260,7 @@ class ChatApi {
   /// attachment_service 提供）。
   Future<Uri> attachmentUri(String attachmentId) async {
     final base = await _baseUrl;
-    return Uri.parse('$base/api/v2/attachments/$attachmentId');
+    return Uri.parse('$base/api/attachments/$attachmentId');
   }
 
   /// 附件图片预览鉴权头（cached_network_image / Image.network 的静态头场景）。

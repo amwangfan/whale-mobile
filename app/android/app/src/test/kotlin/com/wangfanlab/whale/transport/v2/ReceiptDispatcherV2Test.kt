@@ -20,7 +20,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * action.receipt 状态机与下行幂等（contracts/v2 §7/§16）单元测试。
+ * action.receipt 状态机与下行幂等（contracts/device §7/§16）单元测试。
  * Robolectric 提供真实 SQLite；分发器共用真实单线程调度器。
  */
 @RunWith(RobolectricTestRunner::class)

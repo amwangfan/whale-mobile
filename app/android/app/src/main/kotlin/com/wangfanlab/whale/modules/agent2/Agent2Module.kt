@@ -21,7 +21,7 @@ import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 
 /**
- * contracts/v2 设备动作族执行器（Root 版内核；capability → handler 注册到
+ * contracts/device 设备动作族执行器（Root 版内核；capability → handler 注册到
  * [ReceiptDispatcherV2]，幂等/超时/first-terminal-wins 由分发器负责）。
  *
  * 覆盖能力（§5.1/§5.3）：
