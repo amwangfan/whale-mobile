@@ -281,6 +281,38 @@ void main() {
       c.dispose();
     });
 
+    test('Link 在线但图片回合超 1MiB 帧 → 走 SSE 退路（不硬闯 Link）', () async {
+      final frames = [
+        ('run', {'run_id': 'run_big', 'conversation_id': 'mobile:big'}),
+        ('done', {
+          'run_id': 'run_big', 'status': 'completed', 'text': '大图回复',
+          'conversation_id': 'mobile:big', 'error': '',
+        }),
+      ];
+      final c = ChatController(
+          conversationId: 'mobile:big', api: api, sse: _FakeSse(frames));
+      // 估帧必超 1MiB（fitsLinkFrame false）的合成 data: URL
+      final big = 'data:image/jpeg;base64,${'a' * (1024 * 1024)}';
+      await c.send('看图', images: [big]);
+      expect(c.messages[0].text, '大图回复');
+      expect(c.messages[0].sendState, MessageSendState.settled);
+      final linkSends = server.frames.where((f) =>
+          f['type'] == 'rpc.request' &&
+          (f['payload'] as Map)['method'] == 'chat.send');
+      expect(linkSends, isEmpty, reason: '超帧回合不得占用 Link 帧');
+      c.dispose();
+    });
+
+    test('Link 在线 + 小图回合未超帧 → 仍走 Link', () async {
+      final c = ChatController(conversationId: 'mobile:small', api: api);
+      c.attach();
+      await c.send('看图', images: const ['data:image/png;base64,aGVsbG8=']);
+      await _until(() => !c.sending);
+      expect(c.messages[0].text, '回复：看图');
+      expect(c.messages[0].sendState, MessageSendState.settled);
+      c.dispose();
+    });
+
     test('SSE done 前任意分包切断仍能解析（1 字节分块）', () async {
       await client.dispose();
       final frames = [

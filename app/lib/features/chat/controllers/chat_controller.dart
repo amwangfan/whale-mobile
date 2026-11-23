@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../../../transport/link/link_client.dart';
 import '../models/message.dart';
 import '../models/run.dart';
+import '../services/chat_images.dart';
 import '../services/chat_stream_v3.dart';
 import '../services/link_chat_api.dart';
 import '../services/run_feed.dart';
@@ -274,7 +275,9 @@ class ChatController extends ChangeNotifier {
     messages.insert(1, userMsg);
     notifyListeners();
 
-    if (_api.isConnected) {
+    // 传输面选择：Link 在线且整帧（含图片 data: URL）估长 ≤1MiB 走 Link；
+    // 否则走 SSE 退路（HTTP 无帧上限，同一份 Run 语义）——非静默降级。
+    if (_api.isConnected && ChatImages.fitsLinkFrame(trimmed, images)) {
       await _sendViaLink(trimmed, images);
     } else {
       await _sendViaSse(trimmed, images);
