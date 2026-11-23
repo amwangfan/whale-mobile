@@ -150,8 +150,8 @@ class _CoreSettingsPageState extends State<CoreSettingsPage> {
                   autocorrect: false,
                   enableSuggestions: false,
                   decoration: const InputDecoration(
-                    labelText: '访问令牌（Bearer）',
-                    helperText: 'Core 访问令牌：Link hello 鉴权 + artifacts Bearer；留空则连接被 4401 拒绝',
+                    labelText: '访问令牌（Bearer，可选）',
+                    helperText: 'C 路后 Link 用设备身份换票（不再上主 token）；令牌仅作 artifacts Bearer 兜底，留空则 artifacts 走 Link 票头',
                     border: OutlineInputBorder(),
                   ),
                 ),

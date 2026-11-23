@@ -19,14 +19,22 @@ import 'device_config.dart';
 /// 聊天图片第一版不走上行：`chat.send.images` 直接收 data: URL（≤4 张，
 /// 每张 ≤2 MB，见 ChatImageCodec）。
 class ArtifactService {
-  ArtifactService({String? baseUrl, String? token, HttpClient? httpClient})
+  ArtifactService(
+      {String? baseUrl,
+      String? token,
+      HttpClient? httpClient,
+      Future<String?> Function()? ticketProvider})
       : _baseUrlOverride = baseUrl,
         _tokenOverride = token,
-        _http = httpClient ?? HttpClient();
+        _http = httpClient ?? HttpClient(),
+        _ticketProvider = ticketProvider;
 
   final String? _baseUrlOverride;
   final String? _tokenOverride;
   final HttpClient _http;
+
+  /// C 路票据来源（LinkTicketService.currentTicketValue；免主 token 上机）。
+  final Future<String?> Function()? _ticketProvider;
 
   static const Duration timeout = Duration(seconds: 60);
 
@@ -42,13 +50,22 @@ class ArtifactService {
     return Uri.parse('$base/api/artifacts/$artifactId');
   }
 
-  /// Bearer 鉴权头（Link 面 Bearer/ticket；聊天面不依赖设备签名四头）。
+  /// 鉴权头（契约 §3：Link 面 Bearer/ticket）。
+  ///
+  /// 优先 Bearer（旧配置有主 token 时）；无 token → `X-Whale-Link-Ticket`
+  /// 用当前有效 Link 票（C 路免主 token 上机）。
   Future<Map<String, String>> authHeaders() async {
     final token = await _token;
+    if (token.isNotEmpty) {
+      return <String, String>{
+        HttpHeaders.acceptHeader: '*/*',
+        HttpHeaders.authorizationHeader: 'Bearer $token',
+      };
+    }
+    final ticket = await _ticketProvider?.call();
     return <String, String>{
       HttpHeaders.acceptHeader: '*/*',
-      if (token.isNotEmpty)
-        HttpHeaders.authorizationHeader: 'Bearer $token',
+      if (ticket != null && ticket.isNotEmpty) 'X-Whale-Link-Ticket': ticket,
     };
   }
 
@@ -56,12 +73,10 @@ class ArtifactService {
   /// 404 即真 not_found）。
   Future<List<int>> download(String artifactId) async {
     final uri = await artifactUri(artifactId);
-    final token = await _token;
+    final headers = await authHeaders();
     try {
       final req = await _http.getUrl(uri).timeout(timeout);
-      if (token.isNotEmpty) {
-        req.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
-      }
+      headers.forEach(req.headers.set);
       final res = await req.close().timeout(timeout);
       if (res.statusCode != 200) {
         throw ArtifactException(
@@ -92,17 +107,15 @@ class ArtifactService {
     required String contentType,
   }) async {
     final base = await _baseUrl;
-    final token = await _token;
     final uri = Uri.parse('$base/api/artifacts');
+    final authed = await authHeaders();
     final HttpClientRequest req;
     try {
       req = await _http.postUrl(uri).timeout(timeout);
       req.headers.set(HttpHeaders.contentTypeHeader, 'application/octet-stream');
       req.headers.set('X-Whale-Name', name);
       req.headers.set('X-Whale-Content-Type', contentType);
-      if (token.isNotEmpty) {
-        req.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
-      }
+      authed.forEach(req.headers.set);
       req.contentLength = bytes.length;
       req.add(bytes);
     } on Exception catch (e) {

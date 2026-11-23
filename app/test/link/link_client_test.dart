@@ -92,6 +92,60 @@ void main() {
       await sub.cancel();
       await client.dispose();
     });
+
+    test('C 路握手：有效 ticket + role=mobile → welcome', () async {
+      final ticketServer = FakeLinkServer(expectedTicket: 'tk_good');
+      await ticketServer.start();
+      final client = LinkClient(uri: ticketServer.uri, ticket: 'tk_good');
+      client.connect();
+      await _until(() => client.isConnected);
+      expect(client.welcome?.clientId, startsWith('cli_fake_'));
+      // hello 帧：有 ticket、无 token、role=mobile
+      final hello =
+          ticketServer.frames.firstWhere((f) => f['type'] == 'hello');
+      final payload = (hello['payload'] as Map).cast<String, dynamic>();
+      expect(payload['ticket'], 'tk_good');
+      expect(payload.containsKey('token'), isFalse);
+      expect(payload['role'], 'mobile');
+      await client.dispose();
+      await ticketServer.stop();
+    });
+
+    test('C 路握手：错票 → unauthorized + 4401 终态不重连', () async {
+      final ticketServer = FakeLinkServer(expectedTicket: 'tk_good');
+      await ticketServer.start();
+      final client = LinkClient(
+        uri: ticketServer.uri,
+        ticket: 'tk_bad',
+        backoffSteps: const [Duration(milliseconds: 20)],
+      );
+      final errors = <LinkError>[];
+      final sub = client.protocolErrors.listen(errors.add);
+      client.connect();
+      await _until(() => errors.isNotEmpty);
+      expect(errors.first.code, LinkErrorCode.unauthorized);
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+      expect(ticketServer.frames.where((f) => f['type'] == 'hello').length, 1);
+      expect(client.state, LinkState.disconnected);
+      await sub.cancel();
+      await client.dispose();
+      await ticketServer.stop();
+    });
+
+    test('C 路握手：票客户端 role!=mobile → invalid_params 4400', () async {
+      final ticketServer = FakeLinkServer(expectedTicket: 'tk_good');
+      await ticketServer.start();
+      final client =
+          LinkClient(uri: ticketServer.uri, ticket: 'tk_good', role: 'console');
+      final errors = <LinkError>[];
+      final sub = client.protocolErrors.listen(errors.add);
+      client.connect();
+      await _until(() => errors.isNotEmpty);
+      expect(errors.first.code, LinkErrorCode.invalidParams);
+      await sub.cancel();
+      await client.dispose();
+      await ticketServer.stop();
+    });
   });
 
   group('LinkClient RPC', () {

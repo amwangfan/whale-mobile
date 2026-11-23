@@ -17,9 +17,13 @@ import 'dart:io';
 /// - ping → pong；
 /// - 断线控制：dropAll() 强断当前连接（客户端应退避重连）。
 class FakeLinkServer {
-  FakeLinkServer({this.expectedToken = 'test-token'});
+  FakeLinkServer({this.expectedToken = 'test-token', this.expectedTicket});
 
   final String expectedToken;
+
+  /// C 路票据校验：非 null 时 hello 带 ticket 的客户端按此校验
+  /// （绑 role=mobile；错票 4401、票客户端 role!=mobile 4400）。
+  final String? expectedTicket;
 
   HttpServer? _http;
   final List<WebSocket> sockets = [];
@@ -158,12 +162,37 @@ class FakeLinkServer {
   void _onHello(WebSocket ws, Map<String, dynamic> env) {
     final payload = (env['payload'] as Map?)?.cast<String, dynamic>() ?? const {};
     final token = payload['token'] as String?;
+    final ticket = payload['ticket'] as String?;
+    final role = payload['role'] as String? ?? '';
+    // C 路：hello 带 ticket（与 core 同构：票客户端固定 role=mobile）
+    if (ticket != null) {
+      if (role != 'mobile') {
+        _send(ws, 'error',
+            {'code': 'invalid_params', 'message': 'ticket clients must use role=mobile'},
+            corr: env['id'] as String?);
+        ws.close(4400);
+        return;
+      }
+      if (ticket != expectedTicket) {
+        _send(ws, 'error',
+            {'code': 'unauthorized', 'message': 'invalid or expired link ticket'},
+            corr: env['id'] as String?);
+        ws.close(4401);
+        return;
+      }
+      _welcome(ws, env);
+      return;
+    }
     if (token != expectedToken) {
       _send(ws, 'error', {'code': 'unauthorized', 'message': 'invalid token'},
           corr: env['id'] as String?);
       ws.close(4401);
       return;
     }
+    _welcome(ws, env);
+  }
+
+  void _welcome(WebSocket ws, Map<String, dynamic> env) {
     _send(ws, 'welcome', <String, dynamic>{
       'client_id': 'cli_fake_${DateTime.now().microsecondsSinceEpoch}',
       'protocol': '1.0',

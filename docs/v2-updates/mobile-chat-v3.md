@@ -10,10 +10,15 @@
 - Link WS（`ws(s)://{base}/api/link`，role=mobile）：聊天面**前台按需连接**——
   `LinkSession` 引用计数，聊天 tab 可见且应用前台时建立，切走/退后台断开。
   通知永不丢走设备 WS；Link 在线时 `notify` 事件在会话列表 SnackBar 即时展示。
-- 鉴权 A：hello 带 `api_token`（staging 联调）；C 的 ticket 头留接口
-  （`LinkClient(ticket:)` + `DeviceConfig.linkTicket()`，core 侧实现中）。
-- 4401（鉴权失败）/4403（服务端 kick）为终态：不自动重连，显式上屏，
-  改配置后重进页面或点「重连」恢复。
+- 鉴权 **C 路 link_ticket**（主人定，已落地）：建连前经 `LinkTicketService`
+  以设备 Ed25519 身份换票（`POST /api/devices/link_ticket`，§11 签名四头，
+  签 `device_id\nts\nnonce\nPOST\n/api/devices/link_ticket`）→ hello 带
+  `ticket`、固定 role=mobile；主 token 不上机。票 900s 可复用重连（留 30s
+  安全边际）、过期重签；4401/4403 终态 → 作废重签再连（连续 3 次失败给
+  「设备可能已被撤销」明确提示）。artifacts/SSE 退路无 token 时带
+  `X-Whale-Link-Ticket` 头（core 的 /api/chat/stream 票校验为核心差距）。
+- 4401（鉴权失败）/4403（服务端 kick）为终态：不裸重连，先作废重签；
+  连续失败给明确提示。
 
 ## 2. Link RPC 层（`lib/transport/link/link_client.dart`）
 
