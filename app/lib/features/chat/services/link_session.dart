@@ -35,7 +35,7 @@ class LinkSession extends ChangeNotifier {
   final Future<LinkClient> Function()? _clientFactory;
 
   LinkClient? _client;
-  LinkChatApi? _api;
+  ChatBackend? _api;
   ApprovalController? _approvals;
   StreamSubscription<LinkError>? _errorSub;
   int _holders = 0;
@@ -44,7 +44,8 @@ class LinkSession extends ChangeNotifier {
   /// 显式错误（鉴权失败/被服务端断开等终态）。
   String? error;
 
-  LinkChatApi? get api => _api;
+  /// 聊天面后端（ChatBackend 抽象：widget 测试注入内存假实现）。
+  ChatBackend? get api => _api;
   ApprovalController? get approvals => _approvals;
   LinkClient? get client => _client;
   LinkState get state => _client?.state ?? LinkState.disconnected;

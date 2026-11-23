@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 
 import '../../../navigation/app_navigation.dart';
 import '../../../transport/link/link_client.dart';
@@ -45,7 +46,9 @@ class _ConversationListState extends State<ConversationListPage>
     WidgetsBinding.instance.addObserver(this);
     AppNavigation.tabIndex.addListener(_syncHold);
     _session.addListener(_onSession);
-    _syncHold();
+    // 首帧纪律：Link 建连一律推后一帧——聊天面首帧（本页 skeleton）先于
+    // 一切连接工作绘制，连接（WS/TLS/SharedPreferences）不参与首帧路径。
+    WidgetsBinding.instance.addPostFrameCallback((_) => _syncHold());
   }
 
   @override
@@ -92,7 +95,15 @@ class _ConversationListState extends State<ConversationListPage>
       // 连接就绪/重连后刷新列表
       _load();
     }
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    // 会话通知可能落在 build 阶段（连接事件驱动）：build 中不直接 setState。
+    if (SchedulerBinding.instance.schedulerPhase != SchedulerPhase.idle) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() {});
+      });
+    } else {
+      setState(() {});
+    }
   }
 
   /// notify 事件（服务端主动消息）：聊天页活跃时以 SnackBar 呈现。

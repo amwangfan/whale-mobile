@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 
 import '../../../transport/link/link_client.dart';
 import '../controllers/approval_controller.dart';
@@ -94,7 +95,19 @@ class _ChatPageState extends State<ChatPage> {
     if (_controller == null && api != null) {
       _useController(ChatController(conversationId: widget.conversationId, api: api));
     }
-    if (mounted) setState(() {});
+    _safeSetState();
+  }
+
+  /// 连接/控制器事件可能落在 build 阶段：build 中不直接 setState。
+  void _safeSetState() {
+    if (!mounted) return;
+    if (SchedulerBinding.instance.schedulerPhase != SchedulerPhase.idle) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() {});
+      });
+    } else {
+      setState(() {});
+    }
   }
 
   void _useController(ChatController controller) {
@@ -109,7 +122,7 @@ class _ChatPageState extends State<ChatPage> {
 
 
   void _onUpdate() {
-    if (mounted) setState(() {});
+    _safeSetState();
   }
 
   void _maybeLoadOlder() {
