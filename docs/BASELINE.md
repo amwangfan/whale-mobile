@@ -9,7 +9,7 @@
 | Flutter | 3.47.9 stable（Dart 3.13.7） | /opt/flutter |
 | Android SDK | platforms 34/36，build-tools 34.0.0/36.0.0 | /opt/android-sdk |
 | JDK | OpenJDK 21.0.13 | 系统 |
-| 测试机 leaf5 | Onyx Leaf5，Android 13（API 33），Magisk root | ssh `leaf5` + adb `100.64.85.85:5555`（已通） |
+| 测试机 leaf5 | Onyx Leaf5，Android 13（API 33），Magisk root | ssh `leaf5` + adb `<leaf5 tailnet IP 见内部账本>:5555`（已通） |
 | 测试机 nova | Android 9（API 28）GSI，root | ssh `nova`；不适用截屏路径（API<30） |
 
 ## 2. 构建基线

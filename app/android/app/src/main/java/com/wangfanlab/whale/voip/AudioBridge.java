@@ -37,9 +37,9 @@ public final class AudioBridge {
         if (l == null) return;
         try { l.onMediaState(state, mode, detail); } catch (Throwable t) { Log.w(TAG, "media listener", t); }
     }
-    /** 契约 media_endpoint=(b)：东京固定单端口 mux；adb reverse 开发形态经 BridgePrefs 覆盖。 */
-    public static final String DEFAULT_HOST = "100.100.154.46";
-    public static final int DEFAULT_PORT = 18799;
+    /** 占位默认（Tob 裁决 c）：空 host + 端口 0 = 未配置；真实坐标只在设备 BridgePrefs。 */
+    public static final String DEFAULT_HOST = "";
+    public static final int DEFAULT_PORT = 0;
     public static final int SAMPLE_RATE = 16000;
     public static final int CHANNELS = 1;
     public static final byte TYPE_PCM = 0;
@@ -69,7 +69,7 @@ public final class AudioBridge {
      * 仅内存传递不落盘，挂断即撤销）优先；缺省回落 BridgePrefs 独立媒体 token（调试路）。
      * 两者皆空 → fail-closed（不开 socket、不开麦）。host/port 入参永不采用——
      * 桥坐标只读 BridgePrefs（"call extras/remote payloads never select a credential
-     * recipient" 防线不动）。
+     * recipient" 防线不动）。桥端点未配置（占位默认）同样 fail-closed 不开 socket。
      */
     public static synchronized void start(Context ctx, String host, int port, String sessionAuth) {
         stop();
@@ -84,6 +84,11 @@ public final class AudioBridge {
         // Defense in depth: call extras/remote payloads never select a credential recipient.
         String h = safeCtx != null ? BridgePrefs.getHost(safeCtx) : DEFAULT_HOST;
         int p = safeCtx != null ? BridgePrefs.getPort(safeCtx) : DEFAULT_PORT;
+        if (!isEndpointConfigured(h, p)) {
+            FileLog.i("AudioBridge refused: bridge endpoint not configured");
+            notifyMedia("failed", "unknown", "bridge_not_configured");
+            return; // Fail closed: no socket, no microphone, endpoint placeholder unset.
+        }
         applyVoipAudio(safeCtx);
         AudioBridge b = new AudioBridge(h, p, auth);
         sInstance = b;
@@ -97,6 +102,17 @@ public final class AudioBridge {
             if (!t.isEmpty()) return t;
         }
         return prefsToken == null ? "" : prefsToken;
+    }
+
+    /** 桥端点已配置判定（纯函数，JVM 可测）：host 非空且无空白字符 + 端口 1..65535。 */
+    public static boolean isEndpointConfigured(String host, int port) {
+        if (host == null) return false;
+        String h = host.trim();
+        if (h.isEmpty()) return false;
+        for (int i = 0; i < h.length(); i++) {
+            if (Character.isWhitespace(h.charAt(i))) return false;
+        }
+        return port >= 1 && port <= 65535;
     }
 
 

@@ -55,8 +55,8 @@ void main() {
 
   group('linkUriFor 派生', () {
     test('http→ws / https→wss，路径 /api/link，无硬编码端口', () {
-      expect(LinkClient.linkUriFor('http://100.114.93.90:8189').toString(),
-          'ws://100.114.93.90:8189/api/link');
+      expect(LinkClient.linkUriFor('http://203.0.113.10:8189').toString(),
+          'ws://203.0.113.10:8189/api/link');
       expect(LinkClient.linkUriFor('https://rayneo.wangfanlab.com').toString(),
           'wss://rayneo.wangfanlab.com/api/link');
       expect(

@@ -367,8 +367,10 @@ class _ModuleOverviewPageState extends State<ModuleOverviewPage> {
       setState(() {
         _voipEnabled = states['voip'] ?? false; // voip 默认关
         _voipPermissionGranted = perm == 'granted';
-        _bridgeHostController.text = bridge['host'] as String? ?? '100.100.154.46';
-        _bridgePortController.text = '${bridge['port'] ?? 18799}';
+        // 占位符化（Tob 裁决 c）：缺省空串=未配置，不再回落任何真实坐标
+        _bridgeHostController.text = bridge['host'] as String? ?? '';
+        final bridgePort = bridge['port'] as int? ?? 0;
+        _bridgePortController.text = bridgePort > 0 ? '$bridgePort' : '';
         _bridgeTokenConfigured = bridge['tokenConfigured'] == true;
       });
       _registry.updateVoip(
@@ -1081,7 +1083,7 @@ class _ModuleOverviewPageState extends State<ModuleOverviewPage> {
                 controller: _bridgeHostController,
                 decoration: const InputDecoration(
                   labelText: 'PCM 桥地址',
-                  hintText: '100.100.154.46',
+                  hintText: '未配置（向云端/设备管理员索取）',
                   border: OutlineInputBorder(),
                   isDense: true,
                 ),

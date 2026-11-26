@@ -130,10 +130,12 @@ class VoipModule(
                         ),
                     )
                     if (state == "failed") {
-                        // 媒体重试耗尽：契约上行（hangup error + state failed）+
+                        // 媒体重试耗尽/未配置：契约上行（hangup error + state failed）+
                         // 降级可见（通知）+ 主动挂断（不留死通话）
                         Log.w(TAG, "媒体失败，挂断并通知: $detail")
                         flow?.let { emitSignals(it.onError()) }
+                        // 桥未配置（占位默认）：状态明示并引导模块卡配置（Tob 裁决 c）
+                        val notConfigured = detail == "bridge_not_configured"
                         try {
                             com.wangfanlab.whale.modules.notifications.NotificationModule
                                 .SystemNotifier(appContext)
@@ -141,8 +143,12 @@ class VoipModule(
                                     com.wangfanlab.whale.modules.notifications.NotificationSpec(
                                         op = com.wangfanlab.whale.modules.notifications.NotificationOp.POST,
                                         channelId = com.wangfanlab.whale.modules.notifications.NotificationModule.CHANNEL_CALL,
-                                        title = "语音桥不可用",
-                                        text = "通话媒体连接失败，已自动挂断（可稍后重试）",
+                                        title = if (notConfigured) "桥未配置" else "语音桥不可用",
+                                        text = if (notConfigured) {
+                                            "未配置 PCM 桥地址：模块页 → VoIP 通话 → 填桥地址/端口后重试"
+                                        } else {
+                                            "通话媒体连接失败，已自动挂断（可稍后重试）"
+                                        },
                                         notificationTag = "voip-media-failed",
                                         openAppOnClick = true,
                                     ),

@@ -4,9 +4,10 @@ import android.content.Context;
 import android.content.SharedPreferences;
 
 /**
- * Configurable AudioBridge host/port. 契约 media_endpoint=(b)：默认东京固定单端口
- * mux 100.100.154.46:18799，会话靠媒体首帧 AUTH/session_id 区分；adb reverse
- * 开发形态经模块卡显式覆盖为 127.0.0.1。坑③修正：不再指向 N100 中继。
+ * Configurable AudioBridge host/port. 占位符化（2026-11-27 Tob 裁决 c）：默认
+ * 空=未配置语义（真实桥坐标——tailnet/公网 IP——不入仓，隐私纪律）；真实端点
+ * 走设备配置注入（模块卡 UI / 零回显通道写本 prefs）。未配置时 AudioBridge
+ * fail-closed 不开 socket（与媒体 token 空拒连同口径）。
  */
 public final class BridgePrefs {
     private static final String PREFS = "nova_bridge";
@@ -14,9 +15,9 @@ public final class BridgePrefs {
     private static final String KEY_PORT = "port";
     private static final String KEY_TOKEN = "media_token";
 
-    /** 契约默认：东京单端口 mux（Tailscale 100.100.154.46:18799）。 */
-    public static final String DEFAULT_HOST = "100.100.154.46";
-    public static final int DEFAULT_PORT = 18799;
+    /** 占位默认：空 host + 端口 0 = 未配置（真实坐标只在设备 prefs）。 */
+    public static final String DEFAULT_HOST = "";
+    public static final int DEFAULT_PORT = 0;
 
     private BridgePrefs() {}
 
@@ -59,7 +60,12 @@ public final class BridgePrefs {
         sp(ctx).edit().putString(KEY_TOKEN, value).apply();
     }
 
+    /** 桥端点是否已配置（host 非空且端口 1..65535）。 */
+    public static boolean isConfigured(Context ctx) {
+        return AudioBridge.isEndpointConfigured(getHost(ctx), getPort(ctx));
+    }
+
     public static String summary(Context ctx) {
-        return getHost(ctx) + ":" + getPort(ctx);
+        return isConfigured(ctx) ? getHost(ctx) + ":" + getPort(ctx) : "未配置";
     }
 }

@@ -52,9 +52,9 @@ class VoipLogicTest {
     fun `桥参数 - 缺省回落默认 非法端口拒绝 空白 host 拒绝`() {
         val d1 = CallValidator.validateRingArgs(mapOf("number" to "10086"))
         val s1 = (d1 as RingDecision.Execute).spec
-        // 契约 media_endpoint=(b)：默认桥=东京单端口 mux
-        assertEquals("100.100.154.46", s1.bridgeHost)
-        assertEquals(18799, s1.bridgePort)
+        // 占位符化（Tob 裁决 c）：缺省=未配置（空 host + 端口 0），真实坐标只在设备 prefs
+        assertEquals("", s1.bridgeHost)
+        assertEquals(0, s1.bridgePort)
 
         val d2 = CallValidator.validateRingArgs(
             mapOf("number" to "10086", "bridge_host" to "100.64.0.1", "bridge_port" to 19000),
@@ -84,11 +84,11 @@ class VoipLogicTest {
         val d = RingDecider(
             moduleEnabled = { true },
             permissionGranted = { true },
-            defaultBridgeHost = { "100.100.154.46" },
+            defaultBridgeHost = { "203.0.113.10" }, // 文档保留段示例（非真实坐标）
             defaultBridgePort = { 18799 },
         ).onRequest(mapOf("number" to "10086"))
         val spec = (d as RingDecision.Execute).spec
-        assertEquals("100.100.154.46", spec.bridgeHost)
+        assertEquals("203.0.113.10", spec.bridgeHost)
         assertEquals(18799, spec.bridgePort)
     }
 

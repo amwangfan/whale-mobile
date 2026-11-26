@@ -1,14 +1,14 @@
 # 东京节点部署记录（aliyun-tokyo，流量出入口）
 
-> 服务器：阿里云东京 100.100.154.46（tailnet）/ 公网 <公网IP见内部账本>，域名 rayneo.wangfanlab.com（nginx 443）。
+> 服务器：阿里云东京 <tailnet IP见内部账本>（tailnet）/ 公网 <公网IP见内部账本>，域名 rayneo.wangfanlab.com（nginx 443）。
 > 定位：媒体/信令中继与流量出入口；永不承载隐私原始数据存储。
 
 ## 已部署（systemd，自启）
 
 | 服务 | 端口 | 说明 |
 | --- | --- | --- |
-| whale-audio-bridge | 100.100.154.46:18799 | PCM 桥（BRIDGE_TOKEN 鉴权，AUTH 首帧），当前 echo 模式 |
-| whale-ring-hub | 100.100.154.46:18800 | 信令长轮询（SIGNAL_TOKEN 强制；非回环无 token 拒绝启动已生效） |
+| whale-audio-bridge | <tailnet IP见内部账本>:18799 | PCM 桥（BRIDGE_TOKEN 鉴权，AUTH 首帧），当前 echo 模式 |
+| whale-ring-hub | <tailnet IP见内部账本>:18800 | 信令长轮询（SIGNAL_TOKEN 强制；非回环无 token 拒绝启动已生效） |
 
 凭据存 N100 `/opt/whale/secrets/tokyo-bridge.env`（600，不入任何仓库）。
 

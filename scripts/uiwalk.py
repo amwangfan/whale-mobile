@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Minimal UI walker for adb-driven testing: dump hierarchy, tap node by desc/text."""
-import re, subprocess, sys, time
+import os, re, subprocess, sys, time
 
-ADB = ["/opt/android-sdk/platform-tools/adb", "-s", "100.64.85.85:5555"]
+# 设备 adb 地址占位符化（真实尾网坐标不入仓，见内部账本）：经 WHALE_DEV_ADB 注入
+ADB = ["/opt/android-sdk/platform-tools/adb", "-s",
+       os.environ.get("WHALE_DEV_ADB", "<leaf5 tailnet IP 见内部账本>:5555")]
 
 def sh(*args, timeout=60):
     return subprocess.run(ADB + list(args), capture_output=True, text=True, timeout=timeout).stdout

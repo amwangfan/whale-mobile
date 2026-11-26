@@ -107,7 +107,7 @@ void main() {
   test('pathWithQuery：剥 host、保留 query 线上编码、无 query 纯路径', () {
     expect(
         DeviceAuth.pathWithQuery(Uri.parse(
-            'http://100.114.93.90:8193/api/v2/conversations?limit=20&cursor=ab%2Fcd')),
+            'http://203.0.113.10:8193/api/v2/conversations?limit=20&cursor=ab%2Fcd')),
         '/api/v2/conversations?limit=20&cursor=ab%2Fcd');
     expect(
         DeviceAuth.pathWithQuery(Uri.parse(
