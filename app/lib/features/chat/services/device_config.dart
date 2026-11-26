@@ -18,7 +18,7 @@ class DeviceConfig {
   /// 联调注入默认值（生产不内置任何凭据）。
   /// 2026-11-24 收敛契约 §4.2：base_url flavor 化——默认=生产公网 https://rayneo.wangfanlab.com
   /// （不再硬编码模拟器回环）；staging 联调经 --dart-define=WM_CORE_BASE_URL 注入
-  /// （尾网 staging http://100.114.93.90:8189），不入库。所有路径从 base_url 派生无硬编码。
+  /// （尾网 staging 地址见内部账本），不入库。所有路径从 base_url 派生无硬编码。
   static const String defaultBaseUrl = String.fromEnvironment(
     'WM_CORE_BASE_URL',
     defaultValue: 'https://rayneo.wangfanlab.com',

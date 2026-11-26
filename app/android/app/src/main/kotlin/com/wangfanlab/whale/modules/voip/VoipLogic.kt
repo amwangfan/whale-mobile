@@ -43,9 +43,9 @@ object CallValidator {
     const val MAX_NAME_LEN = 40
     const val MAX_HOST_LEN = 255
 
-    /** 契约 media_endpoint=(b)：东京固定单端口 mux；adb reverse 开发形态经 BridgePrefs 覆盖。 */
-    const val DEFAULT_BRIDGE_HOST = "100.100.154.46"
-    const val DEFAULT_BRIDGE_PORT = 18799
+    /** 占位默认（Tob 裁决 c）：空 host + 端口 0 = 未配置；真实坐标只在设备 BridgePrefs。 */
+    const val DEFAULT_BRIDGE_HOST = ""
+    const val DEFAULT_BRIDGE_PORT = 0
 
     fun validateRingArgs(args: Map<*, *>?): RingDecision =
         validateRingArgs(args, DEFAULT_BRIDGE_HOST, DEFAULT_BRIDGE_PORT)
@@ -68,10 +68,16 @@ object CallValidator {
         if (host.length > MAX_HOST_LEN || host.any { it.isWhitespace() || it < '!' }) {
             return RingDecision.Reject("invalid_message")
         }
+        // 端口语义（占位符化）：bridge_port 缺席 → 回落默认（允许占位 0=未配置，
+        // 媒体在接听时 fail-closed）；显式提供则必须 1..65535（显式 0 拒绝）。
+        val portProvided = args.containsKey("bridge_port")
         val port = (args["bridge_port"] as? Number)?.toInt()
             ?: (args["bridge_port"] as? String)?.trim()?.toIntOrNull()
             ?: defaultPort
-        if (port !in 1..65535) return RingDecision.Reject("invalid_message")
+        if (portProvided && port !in 1..65535) return RingDecision.Reject("invalid_message")
+        if (!portProvided && port != 0 && port !in 1..65535) {
+            return RingDecision.Reject("invalid_message")
+        }
         return RingDecision.Execute(RingSpec(number, name, host, port))
     }
 }

@@ -1,7 +1,9 @@
 #!/bin/bash
 # leaf5 回线自动续测：等 ssh 通 → 开 adb → 装包 → 启动 → 查在线状态
 set -u
-ADB="/opt/android-sdk/platform-tools/adb -s 100.64.85.85:5555"
+# 设备 adb 地址占位符化（真实尾网坐标不入仓，见内部账本）：经 WHALE_DEV_ADB 注入
+ADB_TARGET="${WHALE_DEV_ADB:-<leaf5 tailnet IP 见内部账本>:5555}"
+ADB="/opt/android-sdk/platform-tools/adb -s $ADB_TARGET"
 APK=/opt/whale/whale-mobile/app/build/app/outputs/flutter-apk/app-debug.apk
 LOG=/tmp/leaf5-watcher.log
 echo "$(date -Is) watcher start" > "$LOG"
@@ -10,7 +12,7 @@ for i in $(seq 1 2880); do
     echo "$(date -Is) leaf5 back" >> "$LOG"
     timeout 20 ssh -o BatchMode=yes leaf5 '/system/bin/setprop service.adb.tcp.port 5555; /system/bin/stop adbd; sleep 1; /system/bin/start adbd' >> "$LOG" 2>&1
     sleep 4
-    /opt/android-sdk/platform-tools/adb connect 100.64.85.85:5555 >> "$LOG" 2>&1
+    /opt/android-sdk/platform-tools/adb connect "$ADB_TARGET" >> "$LOG" 2>&1
     sleep 3
     $ADB install -r "$APK" >> "$LOG" 2>&1
     $ADB shell am force-stop com.wangfanlab.whale >> "$LOG" 2>&1

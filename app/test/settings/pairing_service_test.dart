@@ -21,8 +21,9 @@ void main() {
 
   group('PairingService.wsUrlFor（ws_path → WS 全路径）', () {
     test('http/https 基地址映射为 ws/wss，端口保留', () {
-      expect(PairingService.wsUrlFor('http://100.114.93.90:8193', '/api/devices/ws'),
-          'ws://100.114.93.90:8193/api/devices/ws');
+      // 文档保留段示例地址（真实尾网坐标不入仓，见内部账本）
+      expect(PairingService.wsUrlFor('http://203.0.113.10:8193', '/api/devices/ws'),
+          'ws://203.0.113.10:8193/api/devices/ws');
       expect(PairingService.wsUrlFor('https://rayneo.wangfanlab.com:8443', '/api/devices/ws'),
           'wss://rayneo.wangfanlab.com:8443/api/devices/ws');
     });
