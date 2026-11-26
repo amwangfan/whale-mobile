@@ -5,6 +5,8 @@ import android.app.Activity
 import android.content.Context
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import com.wangfanlab.whale.runtime.PauseFlags
 import com.wangfanlab.whale.transport.v2.LegacyActionExecutor
@@ -19,9 +21,18 @@ import com.wangfanlab.whale.voip.FileLog
  * - 注册为 `phone.call.ring` 的 [LegacyActionExecutor]（经 NodeRuntimeV2 适配入 v2 分发器）：
  *   args{number,name,bridge_host,bridge_port} → 端侧校验链（[RingDecider]）→
  *   [CallAccountHelper.ring] → reply 终态（executed=响铃成功 / failed）。
- * - 消费下行 call.invite（schema payload 仅 session_id/media_params/expires_at；
+ * - 消费下行 call.invite（schema payload 仅 session_id/media_params/expires_at/name?；
  *   号码/桥参数不经信令，走端侧 [BridgePrefs] 配置）与 call.hangup（远端挂断）。
- * - 来电状态经 [FakeConnectionService.CallStateListener] 钩子回传：
+ * - 契约会话（invite 绑定）状态走 call.* 信封上行（[CallSessionFlow]→signalSender）：
+ *   接听 → call.answer{accepted=true}+call.state active；拒接 → answer{false}+state ended；
+ *   本地挂断 → hangup normal+state ended；远端挂断 → 仅 state ended（不回声）；
+ *   振铃窗 60s 超时 → hangup timeout+state failed；媒体失败 → hangup error+state failed。
+ *   **防双轨**：会话态只走信封轨；experience.event 感知轨（tracker）仅服务无会话的
+ *   action 响铃。媒体诊断事件 kind=call.media（不占用 call.state 词）。
+ * - 呼出触发（呼出加回·契约定案 A）：[requestOutgoingCall] 置 pendingOutgoing
+ *   （60s 窗）并经 triggerSender 上行呼叫请求（experience.event kind=call.request；
+ *   契约无 call.dial，云端订阅该事件后回 call.invite）；窗内到达的 invite 走自动接听分支。
+ * - 无会话的来电状态经 [FakeConnectionService.CallStateListener] 钩子回传：
  *   ringing → sensor.event kind=call.state；接听 → kind=call.answered；
  *   挂断 → kind=call.ended（含 duration_sec）。privacy_class=owner_private，
  *   号码在 summary 中脱敏（仅尾号）。
@@ -30,8 +41,12 @@ import com.wangfanlab.whale.voip.FileLog
  */
 class VoipModule(
     context: Context,
-    /** 上行事件出口（运行时注入 → WssClientV2.sendExperienceEvent，离线入队）。 */
+    /** 上行感知事件出口（运行时注入 → WssClientV2.sendExperienceEvent，离线入队）。 */
     private val eventSender: (CallEvent) -> Unit = {},
+    /** 契约 call.* 信封上行出口（运行时注入 → WssClientV2.sendCallSignal）。 */
+    private val signalSender: (CallSignal) -> Unit = {},
+    /** 呼出触发上行（契约定案 A：运行时注入 → experience.event kind=call.request）。 */
+    private val triggerSender: () -> Unit = {},
     private val decider: RingDecider = RingDecider(
         moduleEnabled = { isEnabled(context.applicationContext) },
         permissionGranted = { permissionGranted(context.applicationContext) },
@@ -46,24 +61,58 @@ class VoipModule(
             spec.bridgeHost, spec.bridgePort,
         )
     },
+    /** 振铃窗调度器（注入便于测试）；返回取消句柄。默认主线程 Handler。 */
+    private val timeoutScheduler: (delayMs: Long, action: () -> Unit) -> () -> Unit =
+        { delayMs, action ->
+            val handler = Handler(Looper.getMainLooper())
+            val runnable = Runnable { action() }
+            handler.postDelayed(runnable, delayMs)
+            ({ handler.removeCallbacks(runnable) })
+        },
+    private val clockMs: () -> Long = { System.currentTimeMillis() },
 ) : LegacyActionExecutor {
 
     private val appContext = context.applicationContext
     private val tracker = CallSessionTracker()
 
+    /** 当前契约会话（invite 绑定；null=无会话，走 experience.event 感知轨）。 */
+    private var flow: CallSessionFlow? = null
+    private var cancelRingTimeout: (() -> Unit)? = null
+
+    /** 呼出请求登记时刻（等待云端回呼 invite 的 60s 窗；契约无 corr_id，按窗相关）。 */
+    private var pendingOutgoingAtMs: Long? = null
+
     init {
-        // FakeConnectionService 状态钩子：Telecom 回调线程不定，eventSender 内部线程安全。
+        // FakeConnectionService 状态钩子：Telecom 回调线程不定，sender 内部线程安全。
+        // 防双轨：契约会话（flow != null）只产 call.* 信封；无会话才走 experience.event。
         FakeConnectionService.sCallStateListener =
             FakeConnectionService.CallStateListener { state, number, name, reason ->
-                val event = when (state) {
-                    "ringing" -> tracker.onRinging(number, name)
-                    "active" -> tracker.onActive()
-                    "ended" -> tracker.onEnded(reason ?: "local")
-                    else -> null
-                }
-                if (event != null) {
-                    FileLog.i("call event → ${event.kind} ${event.summary}")
-                    eventSender(event)
+                val f = flow
+                if (f != null) {
+                    val signals = when (state) {
+                        "ringing" -> f.onRinging()
+                        "active" -> {
+                            cancelRingTimeout?.invoke()
+                            cancelRingTimeout = null
+                            f.onAnswered()
+                        }
+                        "ended" ->
+                            if (reason == "rejected") f.onRejected() else f.onLocalEnded()
+                        else -> emptyList()
+                    }
+                    emitSignals(signals)
+                    if (state == "ended") endSession() // 挂断即撤销会话
+                } else {
+                    val event = when (state) {
+                        "ringing" -> tracker.onRinging(number, name)
+                        "active" -> tracker.onActive()
+                        "ended" -> tracker.onEnded(reason ?: "local")
+                        else -> null
+                    }
+                    if (event != null) {
+                        FileLog.i("call event → ${event.kind} ${event.summary}")
+                        eventSender(event)
+                    }
                 }
             }
         // VOICE-01：媒体状态机（AudioBridge）→ call.state 事件 + 失败降级。
@@ -72,16 +121,19 @@ class VoipModule(
             object : com.wangfanlab.whale.voip.AudioBridge.MediaStateListener {
                 override fun onMediaState(state: String, mode: String, detail: String) {
                     FileLog.i("media state=$state mode=$mode $detail")
+                    // 防双轨：媒体诊断为 call.media，不占用契约 call.state 词。
                     eventSender(
                         CallEvent(
-                            kind = "call.state",
+                            kind = "call.media",
                             privacyClass = "owner_private",
                             summary = "media=$state mode=$mode ${detail.take(80)}".trim(),
                         ),
                     )
                     if (state == "failed") {
-                        // 媒体重试耗尽：降级可见（通知）+ 主动挂断（不留死通话）
+                        // 媒体重试耗尽：契约上行（hangup error + state failed）+
+                        // 降级可见（通知）+ 主动挂断（不留死通话）
                         Log.w(TAG, "媒体失败，挂断并通知: $detail")
+                        flow?.let { emitSignals(it.onError()) }
                         try {
                             com.wangfanlab.whale.modules.notifications.NotificationModule
                                 .SystemNotifier(appContext)
@@ -99,6 +151,7 @@ class VoipModule(
                             Log.w(TAG, "降级通知失败", t)
                         }
                         com.wangfanlab.whale.voip.FakeConnectionService.hangupAll()
+                        endSession() // 幂等：Telecom ended 回调通常已清
                     }
                 }
             }
@@ -135,39 +188,45 @@ class VoipModule(
 
     /**
      * 下行 call.invite（主线程，WssClient.Listener 分发）。校验媒体参数/有效期；
-     * 模块开关关或全局暂停 → 忽略并记日志（invite 无 receipt 通道，失败经
-     * sensor.event call.state state=failed 上行）。
+     * 门控不过或执行失败 → 上行 call.state failed（契约信封轨）。接受后：
+     * 呼出请求 60s 窗内的 invite 走自动接听分支（不响铃/不发全屏通知，Telecom
+     * 落账后立即 answerActive）；其余走正常振铃。振铃窗 60s（受 expires_at 截断）。
      */
     fun onCallInvite(payload: Map<String, Any?>) {
-        when (val decision = CallInviteLogic.validate(payload, System.currentTimeMillis())) {
+        when (val decision = CallInviteLogic.validate(payload, clockMs())) {
             is InviteDecision.Ignore ->
                 Log.i(TAG, "call.invite 忽略: ${decision.reason}")
 
             is InviteDecision.Accept -> {
                 if (!isEnabled(appContext) || PauseFlags.isAllPaused(appContext)) {
                     Log.w(TAG, "call.invite 到达但模块停用/全局暂停，不响铃")
-                    emitRaw(
-                        "call.state",
-                        "state=failed session=${decision.sessionId} reason=unavailable",
-                    )
+                    emitSignals(listOf(CallSignalBuilder.state(decision.sessionId, "failed")))
                     return
                 }
                 if (!permissionGranted(appContext)) {
                     Log.w(TAG, "call.invite 到达但权限缺失，不响铃")
-                    emitRaw(
-                        "call.state",
-                        "state=failed session=${decision.sessionId} reason=permission_missing",
-                    )
+                    emitSignals(listOf(CallSignalBuilder.state(decision.sessionId, "failed")))
                     return
                 }
-                Log.i(TAG, "call.invite 接受 session=${decision.sessionId}，触发响铃")
-                tracker.bindSession(decision.sessionId)
+                val now = clockMs()
+                val autoAnswer = consumePendingOutgoing(now)
+                Log.i(TAG, "call.invite 接受 session=${decision.sessionId} autoAnswer=$autoAnswer")
+                endSession() // 防御：旧会话残留（异常路径）先撤销，取消旧振铃计时
+                val f = CallSessionFlow(decision.sessionId, decision.expiresAt, autoAnswer)
+                flow = f
+                // 会话媒体凭据（首帧 AUTH 载荷=session_id）+ 自动接听标记交 Telecom 层
+                // （连接创建时消费；不落盘——挂断即撤销）。
+                FakeConnectionService.sPendingSessionAuth = decision.sessionId
+                if (autoAnswer) FakeConnectionService.sAutoAnswerOnce = true
+                cancelRingTimeout = timeoutScheduler(
+                    CallSessionFlow.ringWindowMs(decision.expiresAt, now),
+                ) { onRingTimeout(decision.sessionId) }
                 try {
-                    // schema 不携带号码/桥参数：显示名占位，桥走端侧配置（§4/§7）。
+                    // schema 不携带号码/桥参数：号码 *** 占位，桥走端侧配置（§4/§7）。
                     ringer(
                         RingSpec(
                             number = "***",
-                            name = "Whale AI",
+                            name = inviteDisplayName(payload),
                             bridgeHost = BridgePrefs.getHost(appContext),
                             bridgePort = BridgePrefs.getPort(appContext),
                         )
@@ -175,28 +234,99 @@ class VoipModule(
                 } catch (t: Throwable) {
                     Log.e(TAG, "call.invite 响铃失败", t)
                     FileLog.e("invite ring", t)
-                    emitRaw(
-                        "call.state",
-                        "state=failed session=${decision.sessionId} reason=internal",
-                    )
+                    emitSignals(f.onError())
+                    endSession()
                 }
             }
         }
     }
 
-    /** 下行 call.hangup（主线程）：远端结束会话 → 挂断本地连接（ended 事件经钩子回传）。 */
+    /**
+     * 下行 call.hangup（主线程）：远端结束会话 → 挂断本地连接。契约会话内
+     * 只回 state=ended（onRemoteHangup 标记，不回声 hangup 防回环）；
+     * session_id 不匹配活动会话则忽略。无会话时保持既有兜底（action 响铃等）。
+     */
     fun onCallHangup(payload: Map<String, Any?>) {
         val sessionId = payload["session_id"] as? String ?: return
-        Log.i(TAG, "call.hangup session=$sessionId → hangupAll")
-        try {
-            FakeConnectionService.hangupAll()
-        } catch (t: Throwable) {
-            Log.w(TAG, "call.hangup 执行异常", t)
+        val f = flow
+        if (f != null) {
+            if (f.sessionId != sessionId) {
+                Log.i(TAG, "call.hangup session=$sessionId 与活动会话不符，忽略")
+                return
+            }
+            Log.i(TAG, "call.hangup session=$sessionId → 远端结束")
+            f.onRemoteHangup()
+            try {
+                FakeConnectionService.hangupAll()
+            } catch (t: Throwable) {
+                Log.w(TAG, "call.hangup 执行异常", t)
+            }
+            endSession() // 幂等：Telecom ended 回调通常已清
+        } else {
+            Log.i(TAG, "call.hangup session=$sessionId → hangupAll（无活动会话）")
+            try {
+                FakeConnectionService.hangupAll()
+            } catch (t: Throwable) {
+                Log.w(TAG, "call.hangup 执行异常", t)
+            }
         }
     }
 
-    private fun emitRaw(kind: String, summary: String) {
-        eventSender(CallEvent(kind = kind, summary = summary))
+    /**
+     * 呼出触发（呼出加回主线·契约定案 A）：门控 → 登记 pendingOutgoing（60s 窗）→
+     * 经 triggerSender 上行呼叫请求（experience.event kind=call.request）。
+     * 云端回 call.invite 后走自动接听分支。
+     * 返回 requested / unavailable / permission_missing（UI 展示用）。
+     */
+    fun requestOutgoingCall(): String {
+        if (!isEnabled(appContext) || PauseFlags.isAllPaused(appContext)) return "unavailable"
+        if (!permissionGranted(appContext)) return "permission_missing"
+        pendingOutgoingAtMs = clockMs()
+        triggerSender()
+        FileLog.i("呼出请求已登记（等云端 call.invite 回呼，60s 窗）")
+        return "requested"
+    }
+
+    /** 消费呼出请求窗：窗内→true（自动接听）；窗外/无请求→false。每次 invite 至多消费一次。 */
+    private fun consumePendingOutgoing(nowMs: Long): Boolean {
+        val at = pendingOutgoingAtMs ?: return false
+        pendingOutgoingAtMs = null
+        return nowMs - at in 0..CallSessionFlow.OUTGOING_PENDING_WINDOW_MS
+    }
+
+    private fun onRingTimeout(sessionId: String) {
+        val f = flow ?: return
+        if (f.sessionId != sessionId) return
+        Log.w(TAG, "振铃窗到期未接听 session=$sessionId → hangup timeout")
+        emitSignals(f.onRingTimeout())
+        try {
+            FakeConnectionService.hangupAll()
+        } catch (t: Throwable) {
+            Log.w(TAG, "超时挂断异常", t)
+        }
+        endSession() // 幂等
+    }
+
+    /** 挂断即撤销会话：清 flow/振铃计时/会话凭据与自动接听标记（防泄入下一通话）。 */
+    private fun endSession() {
+        cancelRingTimeout?.invoke()
+        cancelRingTimeout = null
+        flow = null
+        FakeConnectionService.sPendingSessionAuth = null
+        FakeConnectionService.sAutoAnswerOnce = false
+    }
+
+    private fun emitSignals(signals: List<CallSignal>) {
+        for (s in signals) {
+            FileLog.i("call signal → ${s.type} ${s.payload["session_id"] ?: ""}")
+            signalSender(s)
+        }
+    }
+
+    /** invite 显示名：契约 name? 可选；缺省回落 "Whale AI"（号码 *** 占位时的唯一标签）。 */
+    private fun inviteDisplayName(payload: Map<String, Any?>): String {
+        val n = (payload["name"] as? String)?.trim().orEmpty().take(CallValidator.MAX_NAME_LEN)
+        return n.ifEmpty { "Whale AI" }
     }
 
     companion object {

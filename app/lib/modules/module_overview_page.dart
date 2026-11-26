@@ -367,7 +367,7 @@ class _ModuleOverviewPageState extends State<ModuleOverviewPage> {
       setState(() {
         _voipEnabled = states['voip'] ?? false; // voip 默认关
         _voipPermissionGranted = perm == 'granted';
-        _bridgeHostController.text = bridge['host'] as String? ?? '127.0.0.1';
+        _bridgeHostController.text = bridge['host'] as String? ?? '100.100.154.46';
         _bridgePortController.text = '${bridge['port'] ?? 18799}';
         _bridgeTokenConfigured = bridge['tokenConfigured'] == true;
       });
@@ -403,6 +403,22 @@ class _ModuleOverviewPageState extends State<ModuleOverviewPage> {
       _appendLog('VoIP 权限申请后状态: $perm');
     } catch (e) {
       _appendLog('VoIP 权限申请失败: $e');
+    }
+  }
+
+  /// 呼出触发（呼出加回主线·契约定案 A）：登记 pendingOutgoing + 上行
+  /// experience.event kind=call.request；云端回 call.invite 后自动接听。
+  Future<void> _requestOutgoingCall() async {
+    try {
+      final status = await _transport.requestOutgoingCall();
+      if (!mounted) return;
+      _appendLog(switch (status) {
+        'requested' => '已请求云端发起呼出，等待回呼（60s 内自动接听）…',
+        'permission_missing' => '呼出失败：通话权限未授予',
+        _ => '呼出失败：VoIP 模块未开启或全局暂停中',
+      });
+    } catch (e) {
+      _appendLog('呼出请求失败: $e');
     }
   }
 
@@ -1021,8 +1037,9 @@ class _ModuleOverviewPageState extends State<ModuleOverviewPage> {
     );
   }
 
-  /// VoIP 模块卡（B4 前半）：开关 + 权限 + PCM 桥端点配置（来电入口为
-  /// WSS call.invite / action.request phone.call.ring，无本地触发 UI）。
+  /// VoIP 模块卡：开关 + 权限 + 呼出触发（呼出加回主线：请求云端回呼，
+  /// 60s 窗内 invite 自动接听）+ PCM 桥端点配置（来电入口为 WSS call.invite
+  /// / action.request phone.call.ring）。
   Widget _buildVoipCard() {
     final spec = _registry['voip'];
     return _moduleCard(
@@ -1045,6 +1062,17 @@ class _ModuleOverviewPageState extends State<ModuleOverviewPage> {
             ),
           ),
         const SizedBox(height: 8),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: FilledButton.icon(
+            onPressed: (_voipEnabled && _voipPermissionGranted == true)
+                ? _requestOutgoingCall
+                : null,
+            icon: const Icon(Icons.call_made, size: 18),
+            label: const Text('呼叫 AI'),
+          ),
+        ),
+        const SizedBox(height: 8),
         Row(
           children: [
             Expanded(
@@ -1053,7 +1081,7 @@ class _ModuleOverviewPageState extends State<ModuleOverviewPage> {
                 controller: _bridgeHostController,
                 decoration: const InputDecoration(
                   labelText: 'PCM 桥地址',
-                  hintText: '127.0.0.1',
+                  hintText: '100.100.154.46',
                   border: OutlineInputBorder(),
                   isDense: true,
                 ),

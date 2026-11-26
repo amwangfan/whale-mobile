@@ -459,6 +459,18 @@ class WssClientV2(
         }
     }
 
+    /**
+     * 上行 call.answer / call.state / call.hangup（契约 §6 call.* 信封；呼出加回主线）。
+     * payload 由 VoipModule CallSignalBuilder 组装；类型白名单防误用，信令帧不自带签名
+     * （连接层 device.hello 已 Ed25519 认证）。
+     */
+    fun sendCallSignal(type: String, payload: Map<String, Any?>) {
+        require(type in MsgTypeV2.CALL_SIGNAL_UPLINK_TYPES) { "非法呼叫信令类型: $type" }
+        lifecycle.execute {
+            sendEnvelopeLocked(type, LinkedHashMap(payload))
+        }
+    }
+
     /** 上行 recording.state（§12.2 录制状态回报）。 */
     fun sendRecordingState(
         runId: String,

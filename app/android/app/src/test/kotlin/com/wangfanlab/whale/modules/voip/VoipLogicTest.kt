@@ -52,7 +52,8 @@ class VoipLogicTest {
     fun `桥参数 - 缺省回落默认 非法端口拒绝 空白 host 拒绝`() {
         val d1 = CallValidator.validateRingArgs(mapOf("number" to "10086"))
         val s1 = (d1 as RingDecision.Execute).spec
-        assertEquals("127.0.0.1", s1.bridgeHost)
+        // 契约 media_endpoint=(b)：默认桥=东京单端口 mux
+        assertEquals("100.100.154.46", s1.bridgeHost)
         assertEquals(18799, s1.bridgePort)
 
         val d2 = CallValidator.validateRingArgs(
@@ -83,11 +84,11 @@ class VoipLogicTest {
         val d = RingDecider(
             moduleEnabled = { true },
             permissionGranted = { true },
-            defaultBridgeHost = { "100.64.154.46" },
+            defaultBridgeHost = { "100.100.154.46" },
             defaultBridgePort = { 18799 },
         ).onRequest(mapOf("number" to "10086"))
         val spec = (d as RingDecision.Execute).spec
-        assertEquals("100.64.154.46", spec.bridgeHost)
+        assertEquals("100.100.154.46", spec.bridgeHost)
         assertEquals(18799, spec.bridgePort)
     }
 
@@ -141,7 +142,7 @@ class VoipLogicTest {
     // ------------------------------------------------------------ call.invite 分发
 
     private fun invitePayload(
-        sessionId: String = "01J0000000000000000000CALL",
+        sessionId: String = "01J0000000000000000000CA11",
         codec: String = "pcm_s16le",
         sampleRate: Int = 16000,
         channels: Int = 1,
@@ -163,7 +164,7 @@ class VoipLogicTest {
     fun `call invite - 合法负载接受`() {
         val d = CallInviteLogic.validate(invitePayload(), nowMs = 1_000_000L)
         val a = d as InviteDecision.Accept
-        assertEquals("01J0000000000000000000CALL", a.sessionId)
+        assertEquals("01J0000000000000000000CA11", a.sessionId)
         assertEquals(2_000_000L, a.expiresAt)
         assertEquals(20, a.frameMs)
     }
@@ -217,7 +218,7 @@ class VoipLogicTest {
             "malformed",
             (CallInviteLogic.validate(p1, 1_000_000L) as InviteDecision.Ignore).reason,
         )
-        // session_id 过短（schema minLength 16）
+        // session_id 过短（契约 ULID 26 字符）
         assertEquals(
             "malformed",
             (CallInviteLogic.validate(
@@ -246,12 +247,12 @@ class VoipLogicTest {
     fun `会话事件 - ringing 到 answered 到 ended 含时长`() {
         var now = 1_000_000L
         val t = CallSessionTracker(clockMs = { now })
-        t.bindSession("01J0000000000000000000CALL")
+        t.bindSession("01J0000000000000000000CA11")
 
         val e1 = t.onRinging("13800138000", "Whale AI")!!
         assertEquals("call.state", e1.kind)
         assertTrue(e1.summary.contains("state=ringing"))
-        assertTrue(e1.summary.contains("session=01J0000000000000000000CALL"))
+        assertTrue(e1.summary.contains("session=01J0000000000000000000CA11"))
         assertTrue("号码应脱敏", e1.summary.contains("***8000"))
         assertFalse("号码不应完整出现", e1.summary.contains("13800138000"))
         assertEquals("owner_private", e1.privacyClass)
