@@ -120,6 +120,49 @@ object CallInviteLogic {
         }
         return InviteDecision.Accept(sessionId, expiresAt, frameMs)
     }
+
+    /**
+     * name 穿透门（与 legacy SignalService.textOr 同口径：core 恒传含空串 +
+     * hub 尊重空串 + 端侧穿透）：字段存在（含显式空串=匿名）→ trim+截断后原样；
+     * 字段缺席/null → null（调用方回落默认）。
+     */
+    fun displayName(payload: Map<*, *>?): String? {
+        if (payload == null || !payload.containsKey("name")) return null
+        val v = payload["name"] as? String ?: return null
+        return v.trim().take(CallValidator.MAX_NAME_LEN)
+    }
+}
+
+// ------------------------------------------------------------- 来电 UI 匿名化（主人令 2026-11-26，B 反转）
+
+/**
+ * 来电显示策略：来电 UI 永不显真实名——名称槽恒为通用标签 [UI_NAME_LABEL]
+ * （空名渲染形态由我定；不显任何真实名，即使 invite/ring payload 带 name）。
+ * payload 原文名仅留内部事件轨（FileLog/experience.event）。号码原样透传
+ * （含 "0"）；缺席时显 "0" 或全空由 [SHOW_ZERO_WHEN_NUMBER_ABSENT] 一行可切
+ * （「全空 vs 显 0」等主人确认）。
+ */
+object IncomingDisplayPolicy {
+    /** 来电 UI 名称槽通用标签（非真实名）。 */
+    const val UI_NAME_LABEL = "来电"
+
+    /** 号码缺席时：true=显 "0"；false=全空 ""。一行可切。 */
+    const val SHOW_ZERO_WHEN_NUMBER_ABSENT = true
+
+    /** 号码：trim 后原样透传；缺席按开关回落（显示层不拒呼、不发明非 0 号码）。 */
+    @JvmStatic
+    @JvmOverloads
+    fun sanitizeNumber(
+        number: String?,
+        showZeroWhenAbsent: Boolean = SHOW_ZERO_WHEN_NUMBER_ABSENT,
+    ): String {
+        val n = number?.trim().orEmpty()
+        return if (n.isNotEmpty()) n else if (showZeroWhenAbsent) "0" else ""
+    }
+
+    /** 名称：来电 UI 恒为通用标签（匿名化）。入参仅为调用点语义显化。 */
+    @JvmStatic
+    fun displayNameForUi(name: String?): String = UI_NAME_LABEL
 }
 
 // ------------------------------------------------------------- call.* 上行信令（契约 §6）

@@ -12,6 +12,7 @@ import android.telecom.PhoneAccountHandle;
 import android.telecom.TelecomManager;
 import android.util.Log;
 
+import com.wangfanlab.whale.modules.voip.IncomingDisplayPolicy;
 import com.wangfanlab.whale.modules.voip.IncomingRoutePolicy;
 
 public class FakeConnectionService extends ConnectionService {
@@ -69,8 +70,10 @@ public class FakeConnectionService extends ConnectionService {
         // HANDOFF 路A：经 whale-in-managed 托管账户上报 → 原厂 InCallUI 接管
         // （系统渲染来电动画+响默认铃声），whale 不自绘 UI、不自播铃、不发 FSI。
         boolean managedUi = CallAccountHelper.isInManagedHandle(handle);
-        String number = "***";
-        String name = "***";
+        // 号码/名称默认空串（2026-11-26 穿透门口径：不再自带 "***" 占位；
+        // 号码缺席由 IncomingDisplayPolicy 按开关显 0/空，名称 UI 恒匿名）。
+        String number = "";
+        String name = "";
         String bridgeHost = BridgePrefs.DEFAULT_HOST;
         int bridgePort = BridgePrefs.DEFAULT_PORT;
         try {
@@ -111,15 +114,19 @@ public class FakeConnectionService extends ConnectionService {
         final boolean autoAnswer = sAutoAnswerOnce;
         sAutoAnswerOnce = false;
 
+        // 来电 UI 匿名化（主人令 2026-11-26，B 反转）：号码原样透传（含 "0"；缺席按
+        // 策略开关显 0/空）；名称槽恒为通用标签「来电」——真实名永不进 Telecom/UI，
+        // conn.name 保留原文仅供内部事件轨（FileLog/experience.event）。
+        number = IncomingDisplayPolicy.sanitizeNumber(number);
+        final String uiName = IncomingDisplayPolicy.displayNameForUi(name);
+
         FakeConnection conn = new FakeConnection(number, name, bridgeHost, bridgePort, !managedUi,
                 sessionAuth);
         if (!managedUi) {
             conn.setConnectionProperties(Connection.PROPERTY_SELF_MANAGED);
         }
         conn.setAddress(Uri.fromParts("tel", number, null), TelecomManager.PRESENTATION_ALLOWED);
-        if (!name.isEmpty()) {
-            conn.setCallerDisplayName(name, TelecomManager.PRESENTATION_ALLOWED);
-        }   /* 真空名：不设 caller display name，stock InCallUI 只显号码 */
+        conn.setCallerDisplayName(uiName, TelecomManager.PRESENTATION_ALLOWED);
         conn.setAudioModeIsVoip(true);
         // Stay RINGING until user answers — never setActive / AudioBridge here.
         conn.setRinging();
@@ -136,7 +143,8 @@ public class FakeConnectionService extends ConnectionService {
         if (!autoAnswer && IncomingRoutePolicy.shouldPostOwnNotification(managedUi)) {
             // Primary path for Honor/Android 10+ self-managed: FSI notification (BAL-safe).
             // managedUi 路径由系统原厂 InCallUI 出界面，whale 不再发全屏通知。
-            IncomingNotification.show(this, number, name, bridgeHost, bridgePort);
+            // 匿名化：通知名称槽恒为通用标签（不显真实名）。
+            IncomingNotification.show(this, number, uiName, bridgeHost, bridgePort);
         }
         if (autoAnswer) {
             // 呼出会话（本端请求、云端回呼）：待 Telecom 落账后自动接听并进通话界面。
@@ -151,7 +159,7 @@ public class FakeConnectionService extends ConnectionService {
                                 | Intent.FLAG_ACTIVITY_CLEAR_TOP
                                 | Intent.FLAG_ACTIVITY_SINGLE_TOP);
                         ui.putExtra("number", c.number);
-                        ui.putExtra("name", c.name);
+                        ui.putExtra("name", IncomingDisplayPolicy.displayNameForUi(c.name));
                         ui.putExtra("bridge_host", c.bridgeHost);
                         ui.putExtra("bridge_port", c.bridgePort);
                         ui.putExtra("answered", true);
@@ -401,7 +409,8 @@ public class FakeConnectionService extends ConnectionService {
                         | Intent.FLAG_ACTIVITY_CLEAR_TOP
                         | Intent.FLAG_ACTIVITY_SINGLE_TOP);
                 ui.putExtra("number", number);
-                ui.putExtra("name", name);
+                // 匿名化：通话界面名称槽恒为通用标签（不显真实名）。
+                ui.putExtra("name", IncomingDisplayPolicy.displayNameForUi(name));
                 ui.putExtra("bridge_host", bridgeHost);
                 ui.putExtra("bridge_port", bridgePort);
                 ui.putExtra("answered", true);
@@ -474,7 +483,9 @@ public class FakeConnectionService extends ConnectionService {
             FakeConnectionService svc = sInstance;
             if (svc != null) RingToneHelper.start(svc);
             if (svc != null) {
-                IncomingNotification.show(svc, number, name, bridgeHost, bridgePort);
+                // 匿名化：通知名称槽恒为通用标签（不显真实名）。
+                IncomingNotification.show(svc, number,
+                        IncomingDisplayPolicy.displayNameForUi(name), bridgeHost, bridgePort);
             }
         }
     }

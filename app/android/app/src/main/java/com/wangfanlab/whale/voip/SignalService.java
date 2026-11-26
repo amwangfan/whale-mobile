@@ -13,6 +13,8 @@ import android.os.IBinder;
 import android.os.Looper;
 import android.os.PowerManager;
 
+import com.wangfanlab.whale.modules.voip.IncomingDisplayPolicy;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -261,13 +263,17 @@ public class SignalService extends Service {
     }
 
     private void handleRing(final JSONObject ev) {
-        final String number = textOr(ev, "number", "***");
-        final String name = textOr(ev, "name", "AI 助手");
+        // D 冗余对齐（2026-11-26）：缺省回落 "***"/"AI 助手" 废弃——字段缺席→空串，
+        // 号码由 IncomingDisplayPolicy 统一显 0/空，名称 UI 恒匿名（真实名仅入
+        // FileLog/内部事件轨）。
+        final String number = textOr(ev, "number", "");
+        final String name = textOr(ev, "name", "");
         // Remote ring metadata is untrusted. Endpoints are local-only (PROTOCOL §4/§7).
         final String bridgeHost = BridgePrefs.getHost(this);
         final int bridgePort = BridgePrefs.getPort(this);
 
-        updateNotif("来电: " + name);
+        // 匿名化：前台服务通知不显真实名（名称槽恒为通用标签）。
+        updateNotif("来电: " + IncomingDisplayPolicy.displayNameForUi(name));
         mMain.post(new Runnable() {
             @Override public void run() {
                 try {
@@ -281,10 +287,15 @@ public class SignalService extends Service {
         });
     }
 
-    private static String textOr(JSONObject o, String key, String def) {
+    /**
+     * 字段穿透门（2026-11-26 两端同改口径：core name 恒传含空串 + hub 尊重空串
+     * + 端侧穿透）：字段存在且非 null → trim 后原样返回（显式空串=匿名穿透）；
+     * 仅字段缺席/null 才回落默认。public 静态以便 JVM 用例直测。
+     */
+    public static String textOr(JSONObject o, String key, String def) {
         if (o == null || !o.has(key) || o.isNull(key)) return def;
-        String v = o.optString(key, def);
-        if (v == null || v.trim().length() == 0) return def;
+        String v = o.optString(key, null);
+        if (v == null) return def;
         return v.trim();
     }
 
