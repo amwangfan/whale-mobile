@@ -21,6 +21,9 @@ class WhaleApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // C 线观测眼：进程创建即初始化 FileLog——WSS 信令路径（VoipModule 等）
+        // 先于任何 Service/Activity 打点，旧版此处不 init 导致 ring 事件静默零落盘。
+        com.wangfanlab.whale.voip.FileLog.init(this)
         nodeRuntimeV2 = NodeRuntimeV2.get(this)
         nodeRuntimeV2.start()
         // BG-02：进程新建（含开机广播拉起）时按策略恢复连接；

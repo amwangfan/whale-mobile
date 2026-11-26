@@ -210,7 +210,16 @@ class VoipModule(
                 }
                 val now = clockMs()
                 val autoAnswer = consumePendingOutgoing(now)
+                // 主人令（B 反转）：号码原样透传（缺席按策略显 0/空，一行可切）；
+                // name 穿透门——显式空串=匿名穿透，仅字段缺席回落内部轨占位 "Whale AI"；
+                // UI 层恒匿名（FakeConnectionService 名称槽="来电"，真实名不进 UI）。
+                val specNumber = IncomingDisplayPolicy.sanitizeNumber(payload["number"] as? String)
+                val specName = CallInviteLogic.displayName(payload) ?: "Whale AI"
                 Log.i(TAG, "call.invite 接受 session=${decision.sessionId} autoAnswer=$autoAnswer")
+                FileLog.i(
+                    "call.invite 接受 session=${decision.sessionId} autoAnswer=$autoAnswer " +
+                        "number=$specNumber name=$specName",
+                )
                 endSession() // 防御：旧会话残留（异常路径）先撤销，取消旧振铃计时
                 val f = CallSessionFlow(decision.sessionId, decision.expiresAt, autoAnswer)
                 flow = f
@@ -222,11 +231,11 @@ class VoipModule(
                     CallSessionFlow.ringWindowMs(decision.expiresAt, now),
                 ) { onRingTimeout(decision.sessionId) }
                 try {
-                    // schema 不携带号码/桥参数：号码 *** 占位，桥走端侧配置（§4/§7）。
+                    // 桥参数不经信令：走端侧配置（§4/§7）。
                     ringer(
                         RingSpec(
-                            number = "***",
-                            name = inviteDisplayName(payload),
+                            number = specNumber,
+                            name = specName,
                             bridgeHost = BridgePrefs.getHost(appContext),
                             bridgePort = BridgePrefs.getPort(appContext),
                         )
@@ -255,6 +264,7 @@ class VoipModule(
                 return
             }
             Log.i(TAG, "call.hangup session=$sessionId → 远端结束")
+            FileLog.i("call.hangup 下行 session=$sessionId → 远端结束")
             f.onRemoteHangup()
             try {
                 FakeConnectionService.hangupAll()
@@ -298,6 +308,7 @@ class VoipModule(
         val f = flow ?: return
         if (f.sessionId != sessionId) return
         Log.w(TAG, "振铃窗到期未接听 session=$sessionId → hangup timeout")
+        FileLog.i("振铃窗到期未接听 session=$sessionId → hangup timeout")
         emitSignals(f.onRingTimeout())
         try {
             FakeConnectionService.hangupAll()
@@ -323,11 +334,7 @@ class VoipModule(
         }
     }
 
-    /** invite 显示名：契约 name? 可选；缺省回落 "Whale AI"（号码 *** 占位时的唯一标签）。 */
-    private fun inviteDisplayName(payload: Map<String, Any?>): String {
-        val n = (payload["name"] as? String)?.trim().orEmpty().take(CallValidator.MAX_NAME_LEN)
-        return n.ifEmpty { "Whale AI" }
-    }
+
 
     companion object {
         private const val TAG = "WhaleVoipModule"
