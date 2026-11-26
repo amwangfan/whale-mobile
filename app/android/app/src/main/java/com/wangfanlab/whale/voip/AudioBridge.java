@@ -37,7 +37,8 @@ public final class AudioBridge {
         if (l == null) return;
         try { l.onMediaState(state, mode, detail); } catch (Throwable t) { Log.w(TAG, "media listener", t); }
     }
-    public static final String DEFAULT_HOST = "127.0.0.1";
+    /** 契约 media_endpoint=(b)：东京固定单端口 mux；adb reverse 开发形态经 BridgePrefs 覆盖。 */
+    public static final String DEFAULT_HOST = "100.100.154.46";
     public static final int DEFAULT_PORT = 18799;
     public static final int SAMPLE_RATE = 16000;
     public static final int CHANNELS = 1;
@@ -56,25 +57,46 @@ public final class AudioBridge {
     private AudioTrack player;
 
     public static synchronized void start(String host, int port) {
-        start(null, host, port);
+        start(null, host, port, null);
     }
 
     public static synchronized void start(Context ctx, String host, int port) {
+        start(ctx, host, port, null);
+    }
+
+    /**
+     * 启动桥。媒体凭据（首帧 AUTH 载荷）：sessionAuth（契约 call.* 会话，=session_id，
+     * 仅内存传递不落盘，挂断即撤销）优先；缺省回落 BridgePrefs 独立媒体 token（调试路）。
+     * 两者皆空 → fail-closed（不开 socket、不开麦）。host/port 入参永不采用——
+     * 桥坐标只读 BridgePrefs（"call extras/remote payloads never select a credential
+     * recipient" 防线不动）。
+     */
+    public static synchronized void start(Context ctx, String host, int port, String sessionAuth) {
         stop();
         Context safeCtx = ctx != null ? ctx : appContext();
-        String auth = safeCtx == null ? "" : BridgePrefs.getToken(safeCtx);
+        String auth = resolveAuthToken(sessionAuth,
+                safeCtx == null ? "" : BridgePrefs.getToken(safeCtx));
         if (auth.isEmpty()) {
-            FileLog.i("AudioBridge refused: configure independent media token locally");
+            FileLog.i("AudioBridge refused: no session auth and no independent media token");
             notifyMedia("failed", "unknown", "media_token_missing");
             return; // Fail closed before opening a socket or starting microphone capture.
         }
         // Defense in depth: call extras/remote payloads never select a credential recipient.
-        String h = BridgePrefs.getHost(safeCtx);
-        int p = BridgePrefs.getPort(safeCtx);
+        String h = safeCtx != null ? BridgePrefs.getHost(safeCtx) : DEFAULT_HOST;
+        int p = safeCtx != null ? BridgePrefs.getPort(safeCtx) : DEFAULT_PORT;
         applyVoipAudio(safeCtx);
         AudioBridge b = new AudioBridge(h, p, auth);
         sInstance = b;
         b.startInternal();
+    }
+
+    /** 媒体凭据决策（纯函数，JVM 可测）：会话凭据优先，空白回落独立 token；永不记录其值。 */
+    public static String resolveAuthToken(String sessionAuth, String prefsToken) {
+        if (sessionAuth != null) {
+            String t = sessionAuth.trim();
+            if (!t.isEmpty()) return t;
+        }
+        return prefsToken == null ? "" : prefsToken;
     }
 
 

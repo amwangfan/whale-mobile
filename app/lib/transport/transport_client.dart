@@ -136,6 +136,13 @@ class TransportClient {
         'token': ?token,
       });
 
+  /// 呼出触发（呼出加回主线·契约定案 A）：请求云端发起 AI 呼出会话；上行经
+  /// experience.event kind=call.request（契约无 call.dial），云端回 call.invite
+  /// 后本端走自动接听分支（60s 窗）。
+  /// 返回 requested / unavailable / permission_missing。
+  Future<String> requestOutgoingCall() async =>
+      await _methods.invokeMethod<String>('requestOutgoingCall') ?? 'unavailable';
+
   // ---- 通知监听模块（B3 前半：phone.notification.read，独立可选默认关）----
 
   /// 通知监听特殊访问权限状态：granted / denied

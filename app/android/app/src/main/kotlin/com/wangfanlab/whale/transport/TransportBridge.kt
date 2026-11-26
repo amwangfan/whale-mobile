@@ -217,6 +217,14 @@ class TransportBridge(
                     result.success(true)
                 }
 
+                /**
+                 * 呼出触发（呼出加回主线·契约定案 A）：门控 + 登记 pendingOutgoing（60s 窗）
+                 * + 上行呼叫请求（experience.event kind=call.request）；云端回 call.invite
+                 * 后本端自动接听。返回 requested / unavailable / permission_missing。
+                 */
+                "requestOutgoingCall" ->
+                    result.success(runtime.voipModule.requestOutgoingCall())
+
                 // ---- 通知监听模块（B3 前半：phone.notification.read）----
 
                 "getNotificationReadPermissionStatus" ->

@@ -147,16 +147,35 @@ class NodeRuntimeV2 private constructor(
 
     val glassesModule: GlassesModule = GlassesModule(appContext)
 
-    /** VoIP：事件出口接到 v2 experience.event（call.state 等，脱敏摘要在模块内完成）。 */
+    /**
+     * VoIP：感知事件出口接 v2 experience.event（无会话通话/媒体诊断）；契约会话信令
+     * （call.answer/call.state/call.hangup 信封）经 signalSender 走类型化上行（防双轨）；
+     * 呼出触发经 triggerSender（契约定案 A：experience.event kind=call.request，
+     * 云端订阅后回 call.invite；契约无 call.dial）。
+     */
     val voipModule: VoipModule = VoipModule(
         appContext,
         eventSender = { ev ->
             sendExperienceEvent(
                 kind = ev.kind,
                 occurredAt = System.currentTimeMillis(),
-                source = SOURCE_VOIP,
+                // 云端定案：source 枚举无 voip 且不加值；残留感知事件（无会话 action
+                // 响铃 + call.media 诊断）统一 source="system"（user 只留给 call.request）。
+                source = "system",
                 summary = ev.summary,
                 privacyClass = ev.privacyClass,
+            )
+        },
+        signalSender = { signal -> sendCallSignal(signal.type, signal.payload) },
+        triggerSender = {
+            // 契约定案 A（云端评审裁决）：kind=call.request 为过滤键；source 枚举无
+            // voip（核心校验拒未知 source），本触发事件上行写 "user"。
+            sendExperienceEvent(
+                kind = "call.request",
+                occurredAt = System.currentTimeMillis(),
+                source = "user",
+                summary = "ai_call",
+                privacyClass = "owner_private",
             )
         },
     )
@@ -660,6 +679,10 @@ class NodeRuntimeV2 private constructor(
     fun sendNotificationAction(eventId: String, notificationId: String, actionId: String) =
         client.sendNotificationAction(eventId, notificationId, actionId)
 
+    /** 上行 call.answer/call.state/call.hangup（契约 call.* 信封，VoIP 会话信令唯一轨）。 */
+    fun sendCallSignal(type: String, payload: Map<String, Any?>) =
+        client.sendCallSignal(type, payload)
+
     fun sendSensorResult(
         requestId: String,
         status: String,
@@ -946,7 +969,6 @@ class NodeRuntimeV2 private constructor(
     companion object {
         private const val TAG = "WhaleNodeRuntimeV2"
         private const val MCP_RESULT_SOURCE = "screenmemo.local"
-        private const val SOURCE_VOIP = "voip"
         private const val SOURCE_NOTIFICATION_READ = "notification_read"
 
         /** v2 节点恢复上下文（独立于 v1 的 whale_node，互不影响）。 */

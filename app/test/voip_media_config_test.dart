@@ -18,10 +18,19 @@ void main() {
       if (call.method == 'getVoipBridgeConfig') {
         return {'host': '127.0.0.1', 'port': 18799, 'tokenConfigured': true};
       }
+      if (call.method == 'requestOutgoingCall') {
+        return 'requested';
+      }
       return null;
     });
   });
   tearDown(() => messenger.setMockMethodCallHandler(channel, null));
+
+  test('outgoing call trigger goes through voip control channel', () async {
+    final status = await client.requestOutgoingCall();
+    expect(status, 'requested');
+    expect(calls.single.method, 'requestOutgoingCall');
+  });
 
   test('media config reads only token presence, not credential', () async {
     final config = await client.getVoipBridgeConfig();

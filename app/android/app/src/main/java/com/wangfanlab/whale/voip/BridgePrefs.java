@@ -4,8 +4,9 @@ import android.content.Context;
 import android.content.SharedPreferences;
 
 /**
- * Configurable AudioBridge host/port for non-root (adb reverse → 127.0.0.1)
- * or Tailscale / LAN. Defaults favor USB reverse for Magic8 Pro smoke tests.
+ * Configurable AudioBridge host/port. 契约 media_endpoint=(b)：默认东京固定单端口
+ * mux 100.100.154.46:18799，会话靠媒体首帧 AUTH/session_id 区分；adb reverse
+ * 开发形态经模块卡显式覆盖为 127.0.0.1。坑③修正：不再指向 N100 中继。
  */
 public final class BridgePrefs {
     private static final String PREFS = "nova_bridge";
@@ -13,8 +14,8 @@ public final class BridgePrefs {
     private static final String KEY_PORT = "port";
     private static final String KEY_TOKEN = "media_token";
 
-    /** Dev default: phone → adb reverse → box :18799 */
-    public static final String DEFAULT_HOST = "127.0.0.1";
+    /** 契约默认：东京单端口 mux（Tailscale 100.100.154.46:18799）。 */
+    public static final String DEFAULT_HOST = "100.100.154.46";
     public static final int DEFAULT_PORT = 18799;
 
     private BridgePrefs() {}

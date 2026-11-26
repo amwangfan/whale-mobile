@@ -324,6 +324,9 @@ object MsgTypeV2 {
     const val CALL_ANSWER = "call.answer"
     const val CALL_HANGUP = "call.hangup"
     const val CALL_STATE = "call.state"
+
+    /** 手机侧允许上行的呼叫信令类型白名单（WssClientV2.sendCallSignal 校验用）。 */
+    val CALL_SIGNAL_UPLINK_TYPES = setOf(CALL_ANSWER, CALL_STATE, CALL_HANGUP)
     const val ERROR = "error"
     const val NOTIFICATION_EVENT = "notification.event"
     const val NOTIFICATION_RECEIPT = "notification.receipt"

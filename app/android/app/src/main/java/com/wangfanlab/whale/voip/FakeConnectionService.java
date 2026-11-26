@@ -20,6 +20,14 @@ public class FakeConnectionService extends ConnectionService {
     private static volatile FakeConnectionService sInstance;
 
     /**
+     * 契约会话交接（VoipModule 在 call.invite 接受后、ringer 前设置，连接创建时消费）：
+     * sPendingSessionAuth = 会话媒体凭据（首帧 AUTH 载荷=session_id，不落盘，挂断即撤销）；
+     * sAutoAnswerOnce = 呼出会话自动接听标记（不响铃/不发全屏通知，落账后立即接听）。
+     */
+    public static volatile String sPendingSessionAuth;
+    public static volatile boolean sAutoAnswerOnce;
+
+    /**
      * 宿主整合：通话状态回调钩子（VoipModule 注册，用于上行 sensor.event
      * call.state/call.answered/call.ended）。state ∈ ringing / active / ended；
      * reason 仅 ended 时有值（local / rejected）。
@@ -97,7 +105,14 @@ public class FakeConnectionService extends ConnectionService {
             }
         }
 
-        FakeConnection conn = new FakeConnection(number, name, bridgeHost, bridgePort, !managedUi);
+        // 契约会话交接：会话凭据 + 呼出自动接听标记（invite 路径设置，仅此消费一次）。
+        String sessionAuth = sPendingSessionAuth;
+        sPendingSessionAuth = null;
+        final boolean autoAnswer = sAutoAnswerOnce;
+        sAutoAnswerOnce = false;
+
+        FakeConnection conn = new FakeConnection(number, name, bridgeHost, bridgePort, !managedUi,
+                sessionAuth);
         if (!managedUi) {
             conn.setConnectionProperties(Connection.PROPERTY_SELF_MANAGED);
         }
@@ -110,17 +125,44 @@ public class FakeConnectionService extends ConnectionService {
         conn.setRinging();
         sActive = conn;
         DemoVoice.prepareAsync(this);   /* 案二：响铃时预生成演示语音，接通即播 */
-        if (IncomingRoutePolicy.shouldPlayOwnRingtone(managedUi)) {
+        // 呼出会话自动接听：无振铃语义——不播铃、不发 FSI。
+        if (!autoAnswer && IncomingRoutePolicy.shouldPlayOwnRingtone(managedUi)) {
             RingToneHelper.start(this);
         }
         FileLog.i("incoming STATE_RINGING number=" + number + " name=" + name
-                + " managedUi=" + managedUi + " (no bridge yet)");
+                + " managedUi=" + managedUi + " autoAnswer=" + autoAnswer + " (no bridge yet)");
         notifyCallState("ringing", conn, null);
 
-        if (IncomingRoutePolicy.shouldPostOwnNotification(managedUi)) {
+        if (!autoAnswer && IncomingRoutePolicy.shouldPostOwnNotification(managedUi)) {
             // Primary path for Honor/Android 10+ self-managed: FSI notification (BAL-safe).
             // managedUi 路径由系统原厂 InCallUI 出界面，whale 不再发全屏通知。
             IncomingNotification.show(this, number, name, bridgeHost, bridgePort);
+        }
+        if (autoAnswer) {
+            // 呼出会话（本端请求、云端回呼）：待 Telecom 落账后自动接听并进通话界面。
+            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(new Runnable() {
+                @Override public void run() {
+                    answerActive();
+                    FakeConnection c = sActive;
+                    FakeConnectionService svc = sInstance;
+                    if (c != null && c.selfManaged && svc != null) {
+                        Intent ui = new Intent(svc, InCallActivity.class);
+                        ui.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                                | Intent.FLAG_ACTIVITY_CLEAR_TOP
+                                | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                        ui.putExtra("number", c.number);
+                        ui.putExtra("name", c.name);
+                        ui.putExtra("bridge_host", c.bridgeHost);
+                        ui.putExtra("bridge_port", c.bridgePort);
+                        ui.putExtra("answered", true);
+                        try {
+                            svc.startActivity(ui);
+                        } catch (Throwable t) {
+                            FileLog.e("autoAnswer InCallActivity blocked", t);
+                        }
+                    }
+                }
+            }, 250);
         }
         return conn;
     }
@@ -174,7 +216,8 @@ public class FakeConnectionService extends ConnectionService {
         // 拨号重定向的任意号码，不加限制。
         if (isAiOut && !"1".equals(norm)) {
             Log.w(TAG, "CallProvider rejecting non-1 number: " + number);
-            FakeConnection bad = new FakeConnection(number, name, bridgeHost, bridgePort, false);
+            FakeConnection bad = new FakeConnection(number, name, bridgeHost, bridgePort, false,
+                    null);
             bad.setAddress(Uri.fromParts("tel", number == null ? "" : number, null),
                     TelecomManager.PRESENTATION_ALLOWED);
             bad.setDisconnected(new DisconnectCause(DisconnectCause.ERROR, "仅支持拨 1"));
@@ -182,7 +225,9 @@ public class FakeConnectionService extends ConnectionService {
             return bad;
         }
 
-        FakeConnection conn = new FakeConnection(number, name, bridgeHost, bridgePort, !managed);
+        // 本地拨号壳（拨1呼出调试路）：无 invite 会话，媒体凭据回落 BridgePrefs 独立 token。
+        FakeConnection conn = new FakeConnection(number, name, bridgeHost, bridgePort, !managed,
+                null);
         if (!managed) {
             conn.setConnectionProperties(Connection.PROPERTY_SELF_MANAGED);
         }
@@ -221,6 +266,8 @@ public class FakeConnectionService extends ConnectionService {
     }
 
     public static void hangupAll() {
+        sPendingSessionAuth = null;
+        sAutoAnswerOnce = false;
         RingToneHelper.stop();
         AudioBridge.stop();
         FakeConnectionService svc = sInstance;
@@ -277,9 +324,9 @@ public class FakeConnectionService extends ConnectionService {
             notifyCallState("active", c, null);
             FileLog.i("answerActive → STATE_ACTIVE bridge=" + c.bridgeHost + ":" + c.bridgePort);
             if (svc != null) {
-                AudioBridge.start(svc, c.bridgeHost, c.bridgePort);
+                AudioBridge.start(svc, c.bridgeHost, c.bridgePort, c.sessionAuth);
             } else {
-                AudioBridge.start(c.bridgeHost, c.bridgePort);
+                AudioBridge.start(null, c.bridgeHost, c.bridgePort, c.sessionAuth);
             }
         } else {
             FileLog.i("answerActive: no active connection");
@@ -321,14 +368,17 @@ public class FakeConnectionService extends ConnectionService {
         final String bridgeHost;
         final int bridgePort;
         final boolean selfManaged;
+        /** 契约会话媒体凭据（首帧 AUTH 载荷=session_id；null=无会话，回落独立 token）。 */
+        final String sessionAuth;
 
         FakeConnection(String number, String name, String bridgeHost, int bridgePort,
-                       boolean selfManaged) {
+                       boolean selfManaged, String sessionAuth) {
             this.number = number;
             this.name = name;
             this.bridgeHost = bridgeHost;
             this.bridgePort = bridgePort;
             this.selfManaged = selfManaged;
+            this.sessionAuth = sessionAuth;
         }
 
         @Override
@@ -341,9 +391,9 @@ public class FakeConnectionService extends ConnectionService {
             FakeConnectionService svc = sInstance;
             if (svc != null) {
                 DemoVoice.playOnAnswer(svc);   /* 案二：接通后主人听预生成人声 */
-                AudioBridge.start(svc, bridgeHost, bridgePort);
+                AudioBridge.start(svc, bridgeHost, bridgePort, sessionAuth);
             } else {
-                AudioBridge.start(bridgeHost, bridgePort);
+                AudioBridge.start(null, bridgeHost, bridgePort, sessionAuth);
             }
             if (selfManaged && svc != null) {
                 Intent ui = new Intent(svc, InCallActivity.class);
