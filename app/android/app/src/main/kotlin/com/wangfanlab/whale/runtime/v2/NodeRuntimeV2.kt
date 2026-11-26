@@ -159,7 +159,9 @@ class NodeRuntimeV2 private constructor(
             sendExperienceEvent(
                 kind = ev.kind,
                 occurredAt = System.currentTimeMillis(),
-                source = SOURCE_VOIP,
+                // 云端定案：source 枚举无 voip 且不加值；残留感知事件（无会话 action
+                // 响铃 + call.media 诊断）统一 source="system"（user 只留给 call.request）。
+                source = "system",
                 summary = ev.summary,
                 privacyClass = ev.privacyClass,
             )
@@ -967,7 +969,6 @@ class NodeRuntimeV2 private constructor(
     companion object {
         private const val TAG = "WhaleNodeRuntimeV2"
         private const val MCP_RESULT_SOURCE = "screenmemo.local"
-        private const val SOURCE_VOIP = "voip"
         private const val SOURCE_NOTIFICATION_READ = "notification_read"
 
         /** v2 节点恢复上下文（独立于 v1 的 whale_node，互不影响）。 */
